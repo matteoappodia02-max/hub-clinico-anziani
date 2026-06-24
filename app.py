@@ -83,7 +83,7 @@ if modalita == "Screening Completo (Paziente)":
         v14 = st.slider("14. Quanto si sente sicuro/a di poter condurre uno stile di vita normale e attivo nonostante il dolore?", 1, 10, 5)
         v15 = st.slider("15. Sente che il dolore fisico non è un problema insormontabile nella sua vita quotidiana?", 1, 10, 5)
         v16 = st.slider("16. Sente di riuscire a condurre una vita piena e soddisfacente anche se convive con un dolore cronico?", 1, 10, 5)
-        v17 = st.slider("17. Pensa che prima di fare progetti importanti sia assolutamente necessario avere il totale controllo del proprio dolore?", 1, 10, 5)
+        v17 = st.slider("17. Pensa che prima di fare progetti importanti sia absolutamente necessario avere il totale controllo del proprio dolore?", 1, 10, 5)
         v18 = st.slider("18. Quanto si sente sicuro/a di poter portare a termine la sua terapia ed esercizi indipendentemente da come si sente emotivamente?", 1, 10, 5)
 
         submit_paziente = st.form_submit_button("Invia Valutazione")
@@ -221,33 +221,47 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
 
                 submit_fisio = st.form_submit_button("Salva Valutazione Funzionale")
 
-                if submit_fisio:
-                    nuova_riga_valutazione = pd.DataFrame([{
-                        "Informazioni cronologiche": datetime.now().strftime("%d/%m/%Y %H.%M.%S"),
-                        "Pressione Arteriosa Sistolica a riposo (mmHg)": pas,
-                        "Frequenza Cardiaca a Riposo": fc_rip,
-                        "Saturazione O2 a riposo": sat_rip,
-                        "30-Second Chair stand test (n°rep)": chair_30s,
-                        "30-Second Step test (n°rep)": step_30s,
-                        "Frequenza cardiaca post test": fc_post,
-                        "Saturazione O2 post test (%)": sat_post,
-                        "Tempo di recupero": t_recupero,
-                        "Colonna 9": "",
-                        "ID Paziente": paciente_selezionato,
-                        "Tempo di esecuzione del Time Up&Go (TUG)": tug,
-                        "Tempo di esecuzione del 5xSTS (in secondi)": sts_5x,
-                        "SPPB [Test di Equilibrio Totale]": sppb_eq,
-                        "SPPB [Velocità del Cammino su 4 metri]": sppb_cam,
-                        "SPPB [Chair Stand Test]": sppb_chair,
-                        "Estensori di Ginocchio (Quadricipite) - DX (Kg)": quad_dx,
-                        "Estensori di Ginocchio (Quadricipite) - SN (Kg)": quad_sn,
-                        "Abduttori d'Anca (Medio Gluteo) - DX (Kg)": gluteo_dx,
-                        "Abduttori d'Anca (Medio Gluteo) - SN (Kg)": gluteo_sn,
-                        "Flessori d'Anca (Iliopsoas) - DX (Kg)": psoas_dx,
-                        "Flessori d'Anca (Iliopsoas) - SN (Kg)": psoas_sn,
-                        "Handgrip mano destra": hand_dx,
-                        "Handgrip mano sinistra": hand_sn
-                    }])
+            if submit_fisio:
+                # Creiamo la lista ordinata dei valori che corrisponde ESATTAMENTE alla riga del foglio
+                riga_valutazione_valori = [
+                    datetime.now().strftime("%d/%m/%Y %H.%M.%S"), # Informazioni cronologiche
+                    pas,
+                    fc_rip,
+                    sat_rip,
+                    chair_30s,
+                    step_30s,
+                    fc_post,
+                    sat_post,
+                    t_recupero,
+                    "", # Colonna 9 (mantenuta vuota come da struttura originale)
+                    paziente_selezionato, # ID Paziente
+                    tug,
+                    sts_5x,
+                    sppb_eq,
+                    sppb_cam,
+                    sppb_chair,
+                    quad_dx,
+                    quad_sn,
+                    gluteo_dx,
+                    gluteo_sn,
+                    psoas_dx,
+                    psoas_sn,
+                    hand_dx,
+                    hand_sn
+                ]
 
-                    conn.update(spreadsheet=URL_FOGLIO, worksheet="Valutazioni_Studio", data=pd.concat([df_valutazioni, nuova_riga_valutazione], ignore_index=True))
-                    st.success(f"Valutazione funzionale per il paziente {paziente_selezionato} salvata con successo!")
+                # Forziamo la creazione del DataFrame basandoci sulle colonne esistenti nel foglio letto
+                try:
+                    # Creiamo il nuovo record allineandolo perfettamente alle colonne del DataFrame originale
+                    nuovo_record_df = pd.DataFrame([riga_valutazione_valori], columns=df_valutazioni.columns)
+                    df_aggiornato = pd.concat([df_valutazioni, nuovo_record_df], ignore_index=True)
+                    
+                    # Inviamo l'aggiornamento a Google Sheets
+                    conn.update(spreadsheet=URL_FOGLIO, worksheet="Valutazioni_Studio", data=df_aggiornato)
+                    st.success(f"✅ Valutazione funzionale per il paziente {paziente_selezionato} salvata con successo!")
+                    
+                    # Forza il reset della cache per vedere subito il dato aggiornato al prossimo riavvio
+                    st.cache_data.clear()
+                except Exception as e:
+                    st.error(f"Errore durante il salvataggio: {e}")
+                    st.info("Verifica che il nome della scheda sia esattamente 'Valutazioni_Studio' e che il numero di colonne nel foglio sia pari a 24.")
