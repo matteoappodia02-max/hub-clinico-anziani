@@ -77,9 +77,7 @@ if modalita == "Screening Completo (Paziente)":
         submit = st.form_submit_button("Invia Valutazione")
         
         if submit:
-            eta = datetime.now().year - anno_nascita
-            id_gen = f"{iniziali}{str(anno_nascita)[-2:]}"
-            nuova_riga = pd.DataFrame([{
+           nuova_riga = pd.DataFrame([{
                 "Informazioni cronologiche": datetime.now().strftime("%d/%m/%Y %H.%M.%S"),
                 "Consenso al trattamento dei dati sanitari:": col_consenso,
                 "ID paziente": id_gen,
@@ -92,24 +90,25 @@ if modalita == "Screening Completo (Paziente)":
                 "Nelle ultime settimane o negli ultimi giorni, il paziente ha manifestato uno o più dei seguenti sintomi improvvisi?  ": ", ".join(sintomi_red),
                 "In media, nelle ultime 48 ore, che livello di dolore fisico ha avvertito il paziente durante le normali attività quotidiane?  ": dolore_nrs,
                 "Indichi brevemente i principali farmaci assunti (es. anticoagulanti, cortisonici, beta-bloccanti, ecc.).  ": farmaci,
-                "   Vissuto del movimento, umore e stabilità   [Nelle ultime 2 settimane, quanto spesso è stato infastidito da scarso appetito o eccessiva alimentazione?]": v1,
-                "   Vissuto del movimento, umore e stabilità   [Quanto spesso si sente contento/a e sereno/a con se stesso/a?]": v2,
-                "   Vissuto del movimento, umore e stabilità   [Sente che alcuni pensieri insignificanti le passano per la mente e la infastidiscono?]": v3,
-                "   Vissuto del movimento, umore e stabilità   [Sente di avere un carattere irascibile o di essere una \"testa calda\"?]": v4,
-                "   Vissuto del movimento, umore e stabilità   [Quando si arrabbia, le capita di dire cose cattive o di perdere il controllo]": v5,
-                "   Vissuto del movimento, umore e stabilità   [Quanto la fa sentire furioso/a o a disagio l'essere criticato/a di fronte ad altre persone?]": v6,
-                "   Vissuto del movimento, umore e stabilità   [Non avrei così tanto dolore se non ci fosse qualcosa di potenzialmente pericoloso nel mio corpo]": v7,
-                "   Vissuto del movimento, umore e stabilità   [Quando sente dolore, sente che non riesce a toglierselo dalla testa ed è difficile pensare ad altro]": v8,
-                "   Vissuto del movimento, umore e stabilità   [Quanto crede che l'attività fisica e l'esercizio possano danneggiare la parte del corpo dolorosa?]": v9,
-                "   Vissuto del movimento, umore e stabilità   [Sente di non poter svolgere attività fisica perché teme che possa far peggiorare il suo dolore?]": v10,
-                "   Vissuto del movimento, umore e stabilità   [Sente che le attività quotidiane o la gestione della casa/ lavorative sono ormai troppo pesanti e faticose da gestire?]": v11,
-                "   Vissuto del movimento, umore e stabilità   [Quanto si sente spaventato/a, ansioso/a o insicuro/a all'idea di poter scivolare, inciampare o cadere durante la giornata?]": v12,
-                "   Vissuto del movimento, umore e stabilità   [Quando si trova in piedi (fermo o mentre cammina), quanto avverte una sensazione fisica di instabilità o debolezza nelle gambe?]": v13,
-                "   Vissuto del movimento, umore e stabilità   [Quanto si sente sicuro/a di poter condurre uno stile di vita normale e attivo nonostante il dolore?]": v14,
-                "   Vissuto del movimento, umore e stabilità   [Sente che il dolore fisico non è un problema insormontabile nella sua vita quotidiana?]": v15,
-                "   Vissuto del movimento, umore e stabilità   [Sente di riuscire a condurre una vita piena e soddisfacente anche se convive con un dolore cronico?]": v16,
-                "   Vissuto del movimento, umore e stabilità   [Pensa che prima di fare progetti importanti sia assolutamente necessario avere il totale controllo del proprio dolore?]": v17,
-                "   Vissuto del movimento, umore e stabilità   [Quanto si sente sicuro/a di poter portare a termine la sua terapia ed esercizi indipendentemente da come si sente emotivamente?]": v18
+                "  Vissuto del movimento, umore e stabilità   [Nelle ultime 2 settimane, quanto spesso è stato infastidito da scarso appetito o eccessiva alimentazione?]": v1,
+                "  Vissuto del movimento, umore e stabilità   [Quanto spesso si sente contento/a e sereno/a con se stesso/a?]": v2,
+                "  Vissuto del movimento, umore e stabilità   [Sente che alcuni pensieri insignificanti le passano per la mente e la infastidiscono?]": v3,
+                "  Vissuto del movimento, umore e stabilità   [Sente di avere un carattere irascibile o di essere una \"testa calda\"?]": v4,
+                "  Vissuto del movimento, umore e stabilità   [Quando si arrabbia, le capita di dire cose cattive o di perdere il controllo]": v5,
+                "  Vissuto del movimento, umore e stabilità   [Quanto la fa sentire furioso/a o a disagio l'essere criticato/a di fronte ad altre persone?]": v6,
+                "  Vissuto del movimento, umore e stabilità   [Non avrei così tanto dolore se non ci fosse qualcosa di potenzialmente pericoloso nel mio corpo]": v7,
+                "  Vissuto del movimento, umore e stabilità   [Quando sente dolore, sente che non riesce a toglierselo dalla testa ed è difficile pensare ad altro]": v8,
+                "  Vissuto del movimento, umore e stabilità   [Quanto crede che l'attività fisica e l'esercizio possano danneggiare la parte del corpo dolorosa?]": v9,
+                "  Vissuto del movimento, umore e stabilità   [Sente di non poter svolgere attività fisica perché teme che possa far peggiorare il suo dolore?]": v10,
+                "  Vissuto del movimento, umore e stabilità   [Sente che le attività quotidiane o la gestione della casa/ lavorative sono ormai troppo pesanti e faticose da gestire?]": v11,
+                "  Vissuto del movimento, umore e stabilità   [Quanto si sente spaventato/a, ansioso/a o insicuro/a all'idea di poter scivolare, inciampare o cadere durante la giornata?]": v12,
+                "  Vissuto del movimento, umore e stabilità   [Quando si trova in piedi (fermo o mentre cammina), quanto avverte una sensazione fisica di instabilità o debolezza nelle gambe?]": v13,
+                "  Vissuto del movimento, umore e stabilità   [Quanto si sente sicuro/a di poter condurre uno stile di vita normale e attivo nonostante il dolore?]": v14,
+                "  Vissuto del movimento, umore e stabilità   [Sente che il dolore fisico non è un problema insormontabile nella sua vita quotidiana?]": v15,
+                "  Vissuto del movimento, umore e stabilità   [Sente di riuscire a condurre una vita piena e soddisfacente anche se convive con un dolore cronico?]": v16,
+                "  Vissuto del movimento, umore e stabilità   [Pensa che prima di fare progetti importanti sia assolutamente necessario avere il totale controllo del proprio dolore?]": v17,
+                "  Vissuto del movimento, umore e stabilità   [Quanto si sente sicuro/a di poter portare a termine la sua terapia ed esercizi indipendentemente da come si sente emotivamente?]": v18
+    
             }])
             
             conn.update(spreadsheet=URL_FOGLIO, worksheet="Dati_Paziente", data=pd.concat([df_paziente, nuova_riga], ignore_index=True))
