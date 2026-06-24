@@ -92,7 +92,8 @@ if modalita == "Screening Completo (Paziente)":
             eta = datetime.now().year - anno_nascita
             id_gen = f"{iniziali}{str(anno_nascita)[-2:]}"
             
-            nuova_riga_paziente = pd.DataFrame([{
+            # Mappatura pulita e compatta delle colonne per evitare sdoppiamenti su Google Sheets
+            dati_mappati = {
                 "Informazioni cronologiche": datetime.now().strftime("%d/%m/%Y %H.%M.%S"),
                 "Consenso al trattamento dei dati sanitari:": col_consenso,
                 "ID paziente": id_gen,
@@ -100,32 +101,32 @@ if modalita == "Screening Completo (Paziente)":
                 "Età del paziente": eta,
                 "Sesso Biologico": sesso,
                 "Situazione abitativa": situazione_abitativa,
-                " Al paziente sono state diagnosticate una o più delle seguenti condizioni meccaniche/strutturali?  ": ", ".join(condizioni_mecc),
-                "Il paziente soffre di una o più delle seguenti patologie sistemiche?\"  ": ", ".join(condizioni_sist),
-                "Nelle ultime settimane o negli ultimi giorni, il paziente ha manifestato uno o più dei seguenti sintomi improvvisi?  ": ", ".join(sintomi_red),
-                "In media, nelle ultime 48 ore, che livello di dolore fisico ha avvertito il paziente durante le normali attività quotidiane?  ": dolore_nrs,
-                "Indichi brevemente i principali farmaci assunti (es. anticoagulanti, cortisonici, beta-bloccanti, ecc.).  ": farmaci,
-                
-                # Risposte (ho mantenuto i nomi esatti delle colonne con gli spazi per non rompere il database)
-                "  Vissuto del movimento, umore e stabilità   [Nelle ultime 2 settimane, quanto spesso è stato infastidito da scarso appetito o eccessiva alimentazione?]": v1,
-                "  Vissuto del movimento, umore e stabilità   [Quanto spesso si sente contento/a e sereno/a con se stesso/a?]": v2,
-                "  Vissuto del movimento, umore e stabilità   [Sente che alcuni pensieri insignificanti le passano per la mente e la infastidiscono?]": v3,
-                "  Vissuto del movimento, umore e stabilità   [Sente di avere un carattere irascibile o di essere una \"testa calda\"?]": v4,
-                "  Vissuto del movimento, umore e stabilità   [Quando si arrabbia, le capita di dire cose cattive o di perdere il controllo]": v5,
-                "  Vissuto del movimento, umore e stabilità   [Quanto la fa sentire furioso/a o a disagio l'essere criticato/a di fronte ad altre persone?]": v6,
-                "  Vissuto del movimento, umore e stabilità   [Non avrei così tanto dolore se non ci fosse qualcosa di potenzialmente pericoloso nel mio corpo]": v7,
-                "  Vissuto del movimento, umore e stabilità   [Quando sente dolore, sente che non riesce a toglierselo dalla testa ed è difficile pensare ad altro]": v8,
-                "  Vissuto del movimento, umore e stabilità   [Quanto crede che l'attività fisica e l'esercizio possano danneggiare la parte del corpo dolorosa?]": v9,
-                "  Vissuto del movimento, umore e stabilità   [Sente di non poter svolgere attività fisica perché teme che possa far peggiorare il suo dolore?]": v10,
-                "  Vissuto del movimento, umore e stabilità   [Sente che le attività quotidiane o la gestione della casa/ lavorative sono ormai troppo pesanti e faticose da gestire?]": v11,
-                "  Vissuto del movimento, umore e stabilità   [Quanto si sente spaventato/a, ansioso/a o insicuro/a all'idea di poter scivolare, inciampare o cadere durante la giornata?]": v12,
-                "  Vissuto del movimento, umore e stabilità   [Quando si trova in piedi (fermo o mentre cammina), quanto avverte una sensazione fisica di instabilità o debolezza nelle gambe?]": v13,
-                "  Vissuto del movimento, umore e stabilità   [Quanto si sente sicuro/a di poter condurre uno stile di vita normale e attivo nonostante il dolore?]": v14,
-                "  Vissuto del movimento, umore e stabilità   [Sente che il dolore fisico non è un problema insormontabile nella sua vita quotidiana?]": v15,
-                "  Vissuto del movimento, umore e stabilità   [Sente di riuscire a condurre una vita piena e soddisfacente anche se convive con un dolore cronico?]": v16,
-                "  Vissuto del movimento, umore e stabilità   [Pensa che prima di fare progetti importanti sia assolutamente necessario avere il totale controllo del proprio dolore?]": v17,
-                "  Vissuto del movimento, umore e stabilità   [Quanto si sente sicuro/a di poter portare a termine la sua terapia ed esercizi indipendentemente da come si sente emotivamente?]": v18
-            }])
+                "Condizioni Meccaniche": ", ".join(condizioni_mecc),
+                "Patologie Sistemiche": ", ".join(condizioni_sist),
+                "Sintomi Red Flags": ", ".join(sintomi_red),
+                "Dolore NRS": dolore_nrs,
+                "Farmaci": farmaci,
+                "V1_Appetito": v1,
+                "V2_Serenita": v2,
+                "V3_Pensieri_Insignificanti": v3,
+                "V4_Carattere_Irascibile": v4,
+                "V5_Perdita_Controllo": v5,
+                "V6_Disagio_Critiche": v6,
+                "V7_Credenza_Pericolo_Corpo": v7,
+                "V8_Ruminazione_Dolore": v8,
+                "V9_Paura_Danno_Esercizio": v9,
+                "V10_Evitamento_Dolore": v10,
+                "V11_Fatica_Quotidiana": v11,
+                "V12_Paura_Cadere": v12,
+                "V13_Instabilita_Gambe": v13,
+                "V14_Autoefficacia_Attiva": v14,
+                "V15_Dolore_Non_Insurmontabile": v15,
+                "V16_Vita_Piena_Dolore": v16,
+                "V17_Controllo_Totale_Dolore": v17,
+                "V18_Aderenza_Terapia": v18
+            }
+            
+            nuova_riga_paziente = pd.DataFrame([dati_mappati])
             
             conn.update(spreadsheet=URL_FOGLIO, worksheet="Dati_Paziente", data=pd.concat([df_paziente, nuova_riga_paziente], ignore_index=True))
             st.success("Valutazione salvata!")
@@ -139,7 +140,6 @@ if modalita == "Screening Completo (Paziente)":
 # ==============================================================================
 elif modalita == "Pannello Analisi (Fisioterapista)":
     
-    # --- LOGICA DI ACCESSO ---
     if not st.session_state.fiso_auth:
         st.title("🔒 Accesso Area Clinica")
         st.write("Inserisci il PIN per accedere al modulo delle valutazioni funzionali.")
@@ -151,23 +151,19 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
             else:
                 st.error("PIN errato. Riprova.")
     
-    # --- INTERFACCIA SBLOCCATA ---
     else:
-        # Tasto per il logout manuale
         st.sidebar.markdown("---")
         if st.sidebar.button("🚪 Esci dall'Area Clinica"):
             st.session_state.fiso_auth = False
             st.rerun()
 
         st.title("📊 Hub Valutazione Funzionale")
-        st.info("Compila solo i test che hai eseguito. I campi lasciati vuoti non influiranno sul database.")
+        st.info("Compila solo i test che hai eseguito. I campi lasciati vuoti rimarranno tali nel database.")
 
-        # Estrazione ID pazienti esistenti dal foglio "Dati_Paziente"
         df_paziente = leggi_dati_paziente()
         lista_pazienti = []
         if "ID paziente" in df_paziente.columns:
             lista_pazienti = df_paziente["ID paziente"].dropna().unique().tolist()
-            # Rimuove eventuali spazi vuoti o valori fittizi
             lista_pazienti = [p for p in lista_pazienti if str(p).strip() != ""] 
 
         if not lista_pazienti:
@@ -226,7 +222,6 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                 submit_fisio = st.form_submit_button("Salva Valutazione Funzionale")
 
                 if submit_fisio:
-                    # Costruzione della riga esattamente come richiesto dalle colonne
                     nuova_riga_valutazione = pd.DataFrame([{
                         "Informazioni cronologiche": datetime.now().strftime("%d/%m/%Y %H.%M.%S"),
                         "Pressione Arteriosa Sistolica a riposo (mmHg)": pas,
@@ -237,8 +232,8 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                         "Frequenza cardiaca post test": fc_post,
                         "Saturazione O2 post test (%)": sat_post,
                         "Tempo di recupero": t_recupero,
-                        "Colonna 9": "", # Campo vuoto di servizio
-                        "ID Paziente": paziente_selezionato,
+                        "Colonna 9": "",
+                        "ID Paziente": paciente_selezionato,
                         "Tempo di esecuzione del Time Up&Go (TUG)": tug,
                         "Tempo di esecuzione del 5xSTS (in secondi)": sts_5x,
                         "SPPB [Test di Equilibrio Totale]": sppb_eq,
@@ -254,6 +249,5 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                         "Handgrip mano sinistra": hand_sn
                     }])
 
-                    # Aggiornamento dello Sheet "Valutazioni_Studio"
                     conn.update(spreadsheet=URL_FOGLIO, worksheet="Valutazioni_Studio", data=pd.concat([df_valutazioni, nuova_riga_valutazione], ignore_index=True))
                     st.success(f"Valutazione funzionale per il paziente {paziente_selezionato} salvata con successo!")
