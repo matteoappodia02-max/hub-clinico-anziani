@@ -35,6 +35,9 @@ def genera_feedback_empatico(kinesiofobia, paura_cadute):
         titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
     return titolo, testo, tipo
 
+# Opzioni standard per le fasi cliniche di follow-up
+OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
+
 # ==============================================================================
 # NAVIGAZIONE LATERALE
 # ==============================================================================
@@ -50,7 +53,9 @@ if modalita == "Screening Completo (Paziente)":
     df_paziente = leggi_dati_paziente()
     
     with st.form("form_paziente_totale"):
-        st.subheader("📌 Sezione A: Identificazione")
+        st.subheader("📌 Sezione A: Identificazione e Tempistica")
+        fase_paziente = st.selectbox("Fase della valutazione:", OPZIONI_FASE)
+        
         col_consenso = st.selectbox("Consenso:", ["Ho letto l'informativa e acconsento liberamente al trattamento dei miei dati personali e sanitari per le finalità riabilitative descritte.", "Non acconsento."])
         col_compilatore = st.selectbox("Chi compila?", ["Paziente stesso", "Familiare", "Caregiver / Assistente"])
         col_ini, col_an, col_sesso = st.columns(3)
@@ -66,7 +71,6 @@ if modalita == "Screening Completo (Paziente)":
         dolore_nrs = st.slider("Dolore (0-10):", 0, 10, 5)
         farmaci = st.text_input("Farmaci:")
         
-        # NUOVA AGGIUNTA: Note specifiche cliniche inserite prima delle domande
         specifiche_cliniche = st.text_area("Note specifiche su sintomi, patologie o condizioni meccaniche (opzionale):", placeholder="Inserisci qui eventuali dettagli utili sul quadro clinico...")
 
         st.subheader("🧠 Sezione C: Vissuto del Movimento")
@@ -77,7 +81,7 @@ if modalita == "Screening Completo (Paziente)":
         v5 = st.slider("5. Quando si arrabbia, le capita di dire cose cattive o di perdere il controllo?", 1, 10, 5)
         v6 = st.slider("6. Quanto la fa sentire furioso/a o a disagio l'essere criticato/a di fronte ad altre persone?", 1, 10, 5)
         v7 = st.slider("7. Non avrei così tanto dolore se non ci fosse qualcosa di potenzialmente pericoloso nel mio corpo", 1, 10, 5)
-        v8 = st.slider("8. Quando sente dolore, sente che non riesce a togliceselo dalla testa ed è difficile pensare ad altro", 1, 10, 5)
+        v8 = st.slider("8. When sente dolore, sente che non riesce a toglierselo dalla testa ed è difficile pensare ad altro", 1, 10, 5)
         v9 = st.slider("9. Quanto crede che l'attività fisica e l'esercizio possano danneggiare la parte del corpo dolorosa?", 1, 10, 5)
         v10 = st.slider("10. Sente di non poter svolgere attività fisica perché teme che possa far peggiorare il suo dolore?", 1, 10, 5)
         v11 = st.slider("11. Sente che le attività quotidiane o la gestione della casa/ lavorative sono ormai troppo pesanti e faticose da gestire?", 1, 10, 5)
@@ -95,7 +99,7 @@ if modalita == "Screening Completo (Paziente)":
             eta = datetime.now().year - anno_nascita
             id_gen = f"{iniziali}{str(anno_nascita)[-2:]}"
             
-            # Riga valori allineata esattamente all'ordine delle colonne del foglio (inclusa la nuova colonna alla fine)
+            # Record con 32 elementi ordinati (incluso il campo temporale finale)
             riga_valori = [
                 datetime.now().strftime("%d/%m/%Y %H.%M.%S"),
                 col_consenso,
@@ -110,13 +114,14 @@ if modalita == "Screening Completo (Paziente)":
                 dolore_nrs,
                 farmaci,
                 v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18,
-                specifiche_cliniche # Nuovo dato salvato alla fine del record
+                specifiche_cliniche,
+                fase_paziente # Salvato nella colonna 32 (Fase_Valutazione)
             ]
             
             try:
                 nuovo_df = pd.concat([df_paziente, pd.DataFrame([riga_valori], columns=df_paziente.columns)], ignore_index=True)
                 conn.update(spreadsheet=URL_FOGLIO, worksheet="Dati_Paziente", data=nuovo_df)
-                st.success("Valutazione salvata correttamente sul foglio pulito!")
+                st.success(f"Valutazione salvata correttamente per la fase: {fase_paziente}!")
                 
                 tit, txt, typ = genera_feedback_empatico((v9+v10)/2, (v12+v13)/2)
                 if typ == "success": st.success(f"### {tit}\n{txt}")
@@ -163,10 +168,12 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
             df_valutazioni = leggi_dati_valutazioni()
 
             with st.form("form_valutazione_funzionale"):
-                st.subheader("Associazione Paziente")
-                paziente_selezionato = st.selectbox("Seleziona ID Paziente:", lista_pazienti)
+                st.subheader("Associazione Paziente e Tempistica Follow-up")
+                col_paz, col_fas = st.columns(2)
+                with col_paz: paziente_selezionato = st.selectbox("Seleziona ID Paziente:", lista_pazienti)
+                with col_fas: fase_valutazione_fisio = st.selectbox("Fase del Test Funzionale:", OPZIONI_FASE)
                 
-                # Calcolo predittivo a schermo della formula di Tanaka basandoci sull'ID del paziente
+                # Calcolo Tanaka robusto basato sulla prima registrazione disponibile del paziente (Baseline)
                 fc_max_tanaka = None
                 if paziente_selezionato:
                     riga_paz = df_paziente[df_paziente["ID paziente"] == paziente_selezionato]
@@ -177,7 +184,7 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                 st.markdown("---")
                 st.subheader("🩺 Parametri Emodinamici a Riposo")
                 if fc_max_tanaka:
-                    st.caption(f"💡 **Parametro di Riferimento Clinico:** FC Max Teorica stimata per questo paziente (Formula di Tanaka): **{fc_max_tanaka} bpm**")
+                    st.caption(f"💡 **Parametro di Riferimento Clinico:** FC Max Teorica stimata (Formula di Tanaka): **{fc_max_tanaka} bpm**")
                 
                 col_em1, col_em2, col_em3 = st.columns(3)
                 with col_em1: pas = st.number_input("PAS a riposo (mmHg)", min_value=50, max_value=250, value=None, step=1)
@@ -224,9 +231,9 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                 submit_fisio = st.form_submit_button("Salva Valutazione Funzionale")
 
             if submit_fisio:
-                # Creiamo la lista ordinata dei valori aggiungendo alla fine il calcolo di Tanaka
+                # Record con 26 elementi totali (inclusi Tanaka e la nuova colonna Fase_Valutazione)
                 riga_valutazione_valori = [
-                    datetime.now().strftime("%d/%m/%Y %H.%M.%S"), # Informazioni cronologiche
+                    datetime.now().strftime("%d/%m/%Y %H.%M.%S"),
                     pas,
                     fc_rip,
                     sat_rip,
@@ -235,8 +242,8 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                     fc_post,
                     sat_post,
                     t_recupero,
-                    "", # Colonna 9
-                    paziente_selezionato, # ID Paziente
+                    "", # Colonna 9 rimasta vuota
+                    paziente_selezionato,
                     tug,
                     sts_5x,
                     sppb_eq,
@@ -250,7 +257,8 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                     psoas_sn,
                     hand_dx,
                     hand_sn,
-                    fc_max_tanaka # NUOVA AGGIUNTA: Valore salvato nella colonna 25
+                    fc_max_tanaka,
+                    fase_valutazione_fisio # Salvato nella colonna 26 (Fase_Valutazione)
                 ]
 
                 try:
@@ -258,8 +266,8 @@ elif modalita == "Pannello Analisi (Fisioterapista)":
                     df_aggiornato = pd.concat([df_valutazioni, nuovo_record_df], ignore_index=True)
                     
                     conn.update(spreadsheet=URL_FOGLIO, worksheet="Valutazioni_Studio", data=df_aggiornato)
-                    st.success(f"✅ Valutazione funzionale per il paziente {paziente_selezionato} salvata con successo!")
+                    st.success(f"✅ Valutazione funzionale ({fase_valutazione_fisio}) per il paziente {paziente_selezionato} salvata con successo!")
                     st.cache_data.clear()
                 except Exception as e:
                     st.error(f"Errore durante il salvataggio: {e}")
-                    st.info("Verifica che le intestazioni e il numero delle colonne su Google Sheets corrispondano.")
+                    st.info("Verifica che le colonne dei fogli Google e i nomi coincidano esattamente.")
