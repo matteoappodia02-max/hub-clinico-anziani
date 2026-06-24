@@ -32,26 +32,39 @@ def genera_feedback_empatico(kinesiofobia, paura_cadute):
     elif 4 <= indice_prudenza < 7:
         titolo, testo, tipo = "Alcuni aspetti richiedono attenzione", "Abbiamo notato che talvolta senti un po' di timore nel muoverti liberamente. È normale, ma possiamo lavorarci insieme. Una valutazione completa ci aiuterà a capire come farti sentire più sicuro/a in ogni situazione quotidiana.", "info"
     else:
-        titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
+        titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembratri faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
     return titolo, testo, tipo
 
 OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
 
-# Funzione di formattazione dell'asse delle ascisse (X) basata sulla data reale
+# Funzione di formattazione dell'asse X con numerazione forzata per garantire l'ordine cronologico da sinistra a destra
 def formatta_asse_x(riga):
     try:
         data_completa = str(riga.iloc[0]) # Colonna del timestamp
         data_pulita = data_completa.split()[0] # Estrae solo GG/MM/AAAA eliminando l'orario
         
         fase_completa = str(riga.iloc[25]) # Colonna della Fase Valutazione
-        if "Baseline" in fase_completa: fase_breve = "Baseline"
-        elif "3" in fase_completa: fase_breve = "3 Mesi"
-        elif "6" in fase_completa: fase_breve = "6 Mesi"
-        elif "9" in fase_completa: fase_breve = "9 Mesi"
-        elif "12" in fase_completa: fase_breve = "12 Mesi"
-        else: fase_breve = fase_completa
+        if "Baseline" in fase_completa:
+            fase_breve = "Baseline"
+            num_ordine = "1"
+        elif "3" in fase_completa:
+            fase_breve = "3 Mesi"
+            num_ordine = "2"
+        elif "6" in fase_completa:
+            fase_breve = "6 Mesi"
+            num_ordine = "3"
+        elif "9" in fase_completa:
+            fase_breve = "9 Mesi"
+            num_ordine = "4"
+        elif "12" in fase_completa:
+            fase_breve = "12 Mesi"
+            num_ordine = "5"
+        else:
+            fase_breve = fase_completa
+            num_ordine = "6"
         
-        return f"{data_pulita} ({fase_breve})"
+        # Il prefisso numerico costringe il motore grafico a ordinare correttamente da sinistra a destra
+        return f"{num_ordine}. {data_pulita} ({fase_breve})"
     except:
         return "Data N/D"
 
@@ -92,7 +105,7 @@ if modalita == "Screening Completo (Paziente)":
         v2 = st.slider("2. Quanto spesso si sente contento/a...", 1, 10, 5)
         v3 = st.slider("3. Sente che alcuni pensieri...", 1, 10, 5)
         v4 = st.slider("4. Sente di avere un carattere...", 1, 10, 5)
-        v5 = st.slider("5. Quando si arrabbia...", 1, 10, 5)
+        v5 = st.slider("5. When si arrabbia...", 1, 10, 5)
         v6 = st.slider("6. Quanto la fa sentire furioso/a...", 1, 10, 5)
         v7 = st.slider("7. Non avrei così tanto dolore...", 1, 10, 5)
         v8 = st.slider("8. Quando sente dolore...", 1, 10, 5)
@@ -113,7 +126,7 @@ if modalita == "Screening Completo (Paziente)":
             eta = datetime.now().year - anno_nascita
             id_gen = f"{iniziali}{str(anno_nascita)[-2:]}"
             riga_valori = [
-                datetime.now().strftime("%d/%m/%Y %H.%M.%S"), col_consenso, id_gen, col_compilatore, eta, sesso, situazione_abitativa,
+                datetime.now().strftime("%d/%m/%Y %H.%M.%S"), col_consenso, id_gen, col_compilatore, eta, sesso, situation_abitativa,
                 ", ".join(condizioni_mecc), ", ".join(condizioni_sist), ", ".join(sintomi_red), dolore_nrs, farmaci,
                 v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, specifiche_cliniche, fase_paziente
             ]
@@ -246,7 +259,7 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
                 storico_val["Ordine"] = storico_val.iloc[:, 25].map(ordine_cronologico)
                 storico_val = storico_val.sort_values("Ordine")
                 
-                # Applichiamo la data stilizzata e pulita sull'asse delle ascisse (X)
+                # Applichiamo la data stilizzata e ordinata sull'asse delle ascisse (X)
                 storico_val.index = storico_val.apply(formatta_asse_x, axis=1)
                 
                 tab_emo, tab_funz, tab_forza = st.tabs(["🩺 Curve Emodinamiche", "🏃 Performance & Autonomia", "🏋️ Evoluzione Forza"])
@@ -255,13 +268,11 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
                     c1, c2 = st.columns(2)
                     with c1:
                         st.write("**Frequenza Cardiaca Clinica (bpm)**")
-                        # Estrazione robusta per indice: col 2 (FC riposo), 6 (FC post), 24 (Tanaka)
                         df_fc = storico_val.iloc[:, [2, 6, 24]].copy()
                         df_fc.columns = ["FC a riposo", "FC Post-Test", "FC Max Teorica (Tanaka)"]
                         st.line_chart(df_fc)
                     with c2:
                         st.write("**Pressione Arteriosa (mmHg) e Saturazione (%)**")
-                        # Estrazione robusta per indice: col 1 (PAS), 3 (Saturazione)
                         df_pres_sat = storico_val.iloc[:, [1, 3]].copy()
                         df_pres_sat.columns = ["PAS a riposo (mmHg)", "SatO2 a riposo (%)"]
                         st.line_chart(df_pres_sat)
@@ -270,19 +281,16 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
                     c3, c4 = st.columns(2)
                     with c3:
                         st.write("**Test Cronometrati (sec) - *La discesa indica miglioramento***")
-                        # Estrazione robusta: col 11 (TUG), 12 (5xSTS)
                         df_tempi = storico_val.iloc[:, [11, 12]].copy()
                         df_tempi.columns = ["Time Up & Go (TUG)", "5xSTS"]
                         st.line_chart(df_tempi)
                         
                         st.write("**Test di Performance (Ripetizioni) - *La salita indica miglioramento***")
-                        # Estrazione robusta: col 4 (Chair Stand 30s), 5 (Step Test 30s)
                         df_rep = storico_val.iloc[:, [4, 5]].copy()
                         df_rep.columns = ["30-Sec Chair Stand", "30-Sec Step Test"]
                         st.line_chart(df_rep)
                     with c4:
                         st.write("**Dettaglio Punteggi Batteria SPPB (Max 4 per voce)**")
-                        # Estrazione robusta: col 13 (Eq), 14 (Cammino), 15 (Sedia)
                         df_sppb = storico_val.iloc[:, [13, 14, 15]].copy()
                         df_sppb.columns = ["Equilibrio", "Velocità Cammino (4m)", "Chair Stand Score"]
                         st.bar_chart(df_sppb)
@@ -299,12 +307,10 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
                     
                     idx_dx, idx_sn = mappa_indici_forza[distretto]
                     
-                    # Generazione del grafico di forza basato esclusivamente sulle posizioni di memoria
                     df_forza = storico_val.iloc[:, [idx_dx, idx_sn]].copy()
                     df_forza.columns = [f"{distretto} DX (Kg)", f"{distretto} SN (Kg)"]
                     st.line_chart(df_forza)
                     
-                    # Calcolo istantaneo asimmetria
                     ult_rec = storico_val.iloc[-1]
                     v_dx = ult_rec.iloc[idx_dx]
                     v_sn = ult_rec.iloc[idx_sn]
