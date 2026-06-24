@@ -32,10 +32,28 @@ def genera_feedback_empatico(kinesiofobia, paura_cadute):
     elif 4 <= indice_prudenza < 7:
         titolo, testo, tipo = "Alcuni aspetti richiedono attenzione", "Abbiamo notato che talvolta senti un po' di timore nel muoverti liberamente. È normale, ma possiamo lavorarci insieme. Una valutazione completa ci aiuterà a capire come farti sentire più sicuro/a in ogni situazione quotidiana.", "info"
     else:
-        titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle ties gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
+        titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
     return titolo, testo, tipo
 
 OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
+
+# Funzione di formattazione dell'asse delle ascisse (X) basata sulla data reale
+def formatta_asse_x(riga):
+    try:
+        data_completa = str(riga.iloc[0]) # Colonna del timestamp
+        data_pulita = data_completa.split()[0] # Estrae solo GG/MM/AAAA eliminando l'orario
+        
+        fase_completa = str(riga.iloc[25]) # Colonna della Fase Valutazione
+        if "Baseline" in fase_completa: fase_breve = "Baseline"
+        elif "3" in fase_completa: fase_breve = "3 Mesi"
+        elif "6" in fase_completa: fase_breve = "6 Mesi"
+        elif "9" in fase_completa: fase_breve = "9 Mesi"
+        elif "12" in fase_completa: fase_breve = "12 Mesi"
+        else: fase_breve = fase_completa
+        
+        return f"{data_pulita} ({fase_breve})"
+    except:
+        return "Data N/D"
 
 # ==============================================================================
 # NAVIGAZIONE LATERALE PRINCIPALE
@@ -108,7 +126,7 @@ if modalita == "Screening Completo (Paziente)":
                 st.error(f"Errore: {e}")
 
 # ==============================================================================
-# 2. PANNELLO FISIOTERAPISTA (CON INTERFACCIA DI SEPARAZIONE INTERNA)
+# 2. PANNELLO FISIOTERAPISTA (CON INTERFACCIA SEPARATA)
 # ==============================================================================
 elif modalita == "Pannello Analisi e Test (Fisioterapista)":
     if not st.session_state.fiso_auth:
@@ -122,13 +140,11 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
                 st.error("PIN errato.")
         st.stop()
 
-    # Pulsante di Logout nella barra laterale
     st.sidebar.markdown("---")
     if st.sidebar.button("🚪 Esci dall'Area Clinica"):
         st.session_state.fiso_auth = False
         st.rerun()
 
-    # --- LINEA DI NAVIGAZIONE INTERNA APPENA FATTO IL LOGIN ---
     st.title("👨‍⚕️ Pannello di Controllo Clinico")
     sotto_sezione = st.radio(
         "Seleziona Attività:", 
@@ -140,13 +156,12 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
     df_paziente = leggi_dati_paziente()
     df_valutazioni = leggi_dati_valutazioni()
     
-    # Recupero robusto degli ID tramite indici numerici per aggirare i KeyError dei nomi delle colonne
     lista_pazienti = []
     if not df_paziente.empty and len(df_paziente.columns) >= 3:
         lista_pazienti = df_paziente.iloc[:, 2].dropna().unique().tolist()
 
     if not lista_pazienti:
-        st.warning("Nessun paziente registrato nel database aziendale.")
+        st.warning("Nessun paziente registrato nel database.")
     else:
         
         # ======================================================================
@@ -156,7 +171,6 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
             st.subheader("Registrazione Nuova Valutazione / Follow-up")
             paziente_selezionato = st.selectbox("Seleziona ID Paziente per l'inserimento:", lista_pazienti)
             
-            # Calcolo automatico formula di Tanaka basandoci sull'età registrata nella prima riga del paziente
             fc_max_tanaka = None
             storico_paz = df_paziente[df_paziente.iloc[:, 2] == paziente_selezionato] if len(df_paziente.columns) >= 3 else pd.DataFrame()
             if not storico_paz.empty and len(storico_paz.columns) >= 5:
@@ -211,7 +225,7 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
                 try:
                     nuovo_record_df = pd.DataFrame([riga_valutazione_valori], columns=df_valutazioni.columns)
                     conn.update(spreadsheet=URL_FOGLIO, worksheet="Valutazioni_Studio", data=pd.concat([df_valutazioni, nuovo_record_df], ignore_index=True))
-                    st.success(f"✅ Test per la fase '{fase_valutazione_fisio}' registrato con successo!")
+                    st.success(f"✅ Test per la fase '{fase_valutazione_fisio}' registrato!")
                     st.cache_data.clear()
                 except Exception as e:
                     st.error(f"Errore nel salvataggio: {e}")
@@ -223,60 +237,78 @@ elif modalita == "Pannello Analisi e Test (Fisioterapista)":
             st.subheader("Analisi Grafica ed Evoluzione dei Follow-up")
             paziente_scelto = st.selectbox("Seleziona ID Paziente da monitorare:", lista_pazienti)
             
-            # Filtri di isolamento dei record tramite indici numerici (colonna 3 per pazienti, colonna 11 per valutazioni)
             storico_paz = df_paziente[df_paziente.iloc[:, 2] == paziente_scelto].copy() if len(df_paziente.columns) >= 3 else pd.DataFrame()
             storico_val = df_valutazioni[df_valutazioni.iloc[:, 10] == paziente_scelto].copy() if len(df_valutazioni.columns) >= 11 else pd.DataFrame()
             
             ordine_cronologico = {f: i for i, f in enumerate(OPZIONI_FASE)}
             
             if not storico_val.empty and len(storico_val.columns) >= 26:
-                # Ordiniamo i controlli usando la colonna 26 (Fase_Valutazione) per dare linearità temporale ai grafici
                 storico_val["Ordine"] = storico_val.iloc[:, 25].map(ordine_cronologico)
                 storico_val = storico_val.sort_values("Ordine")
                 
-                fasi_presenti = storico_val.iloc[:, 25].tolist()
-                storico_val.index = fasi_presenti
+                # Applichiamo la data stilizzata e pulita sull'asse delle ascisse (X)
+                storico_val.index = storico_val.apply(formatta_asse_x, axis=1)
                 
-                # Sotto-schede grafiche per pulizia visiva
                 tab_emo, tab_funz, tab_forza = st.tabs(["🩺 Curve Emodinamiche", "🏃 Performance & Autonomia", "🏋️ Evoluzione Forza"])
                 
                 with tab_emo:
                     c1, c2 = st.columns(2)
                     with c1:
                         st.write("**Frequenza Cardiaca Clinica (bpm)**")
-                        campi_fc = [c for c in ["FC a riposo (bpm)", "FC post test (bpm)", "FC_Max_Teorica_Tanaka"] if c in storico_val.columns]
-                        if campi_fc: st.line_chart(storico_val[campi_fc])
+                        # Estrazione robusta per indice: col 2 (FC riposo), 6 (FC post), 24 (Tanaka)
+                        df_fc = storico_val.iloc[:, [2, 6, 24]].copy()
+                        df_fc.columns = ["FC a riposo", "FC Post-Test", "FC Max Teorica (Tanaka)"]
+                        st.line_chart(df_fc)
                     with c2:
-                        st.write("**Pressione Arteriosa Sistolica (mmHg)**")
-                        if "PAS a riposo (mmHg)" in storico_val.columns: st.line_chart(storico_val[["PAS a riposo (mmHg)"]])
+                        st.write("**Pressione Arteriosa (mmHg) e Saturazione (%)**")
+                        # Estrazione robusta per indice: col 1 (PAS), 3 (Saturazione)
+                        df_pres_sat = storico_val.iloc[:, [1, 3]].copy()
+                        df_pres_sat.columns = ["PAS a riposo (mmHg)", "SatO2 a riposo (%)"]
+                        st.line_chart(df_pres_sat)
                         
                 with tab_funz:
                     c3, c4 = st.columns(2)
                     with c3:
-                        st.write("**Tempi di Esecuzione (sec) - *La discesa indica un miglioramento***")
-                        campi_tempo = [c for c in ["Time Up&Go - TUG (sec)", "5xSTS (sec)"] if c in storico_val.columns]
-                        if campi_tempo: st.line_chart(storico_val[campi_tempo])
+                        st.write("**Test Cronometrati (sec) - *La discesa indica miglioramento***")
+                        # Estrazione robusta: col 11 (TUG), 12 (5xSTS)
+                        df_tempi = storico_val.iloc[:, [11, 12]].copy()
+                        df_tempi.columns = ["Time Up & Go (TUG)", "5xSTS"]
+                        st.line_chart(df_tempi)
+                        
+                        st.write("**Test di Performance (Ripetizioni) - *La salita indica miglioramento***")
+                        # Estrazione robusta: col 4 (Chair Stand 30s), 5 (Step Test 30s)
+                        df_rep = storico_val.iloc[:, [4, 5]].copy()
+                        df_rep.columns = ["30-Sec Chair Stand", "30-Sec Step Test"]
+                        st.line_chart(df_rep)
                     with c4:
-                        st.write("**Batteria Funzionale SPPB**")
-                        campi_sppb = [c for c in ["SPPB [Test di Equilibrio Totale]", "SPPB [Velocità del Cammino 4m]", "SPPB [Chair Stand Test]"] if c in storico_val.columns]
-                        if campi_sppb: st.bar_chart(storico_val[campi_sppb])
+                        st.write("**Dettaglio Punteggi Batteria SPPB (Max 4 per voce)**")
+                        # Estrazione robusta: col 13 (Eq), 14 (Cammino), 15 (Sedia)
+                        df_sppb = storico_val.iloc[:, [13, 14, 15]].copy()
+                        df_sppb.columns = ["Equilibrio", "Velocità Cammino (4m)", "Chair Stand Score"]
+                        st.bar_chart(df_sppb)
                         
                 with tab_forza:
                     distretto = st.selectbox("Seleziona Gruppo Muscolare da analizzare:", ["Quadricipite", "Medio Gluteo", "Iliopsoas", "Handgrip"])
-                    mappa_muscoli = {
-                        "Quadricipite": ["Quadricipite DX (Kg)", "Quadricipite SN (Kg)"],
-                        "Medio Gluteo": ["Medio Gluteo DX (Kg)", "Medio Gluteo SN (Kg)"],
-                        "Iliopsoas": ["Iliopsoas DX (Kg)", "Iliopsoas SN (Kg)"],
-                        "Handgrip": ["Handgrip DX (Kg)", "Handgrip SN (Kg)"]
+                    
+                    mappa_indici_forza = {
+                        "Quadricipite": (16, 17),
+                        "Medio Gluteo": (18, 19),
+                        "Iliopsoas": (20, 21),
+                        "Handgrip": (22, 23)
                     }
-                    campi_f = [c for c in mappa_muscoli[distretto] if c in storico_val.columns]
-                    if len(campi_f) == 2:
-                        st.line_chart(storico_val[campi_f])
-                        
-                        # Calcolo istantaneo del deficit asimmetrico dell'ultimo controllo registrato
-                        ult_rec = storico_val.iloc[-1]
-                        v_dx, v_sn = ult_rec[campi_f[0]], ult_rec[campi_f[1]]
-                        if pd.notna(v_dx) and pd.notna(v_sn) and v_dx > 0:
-                            st.caption(f"⚖️ **Analisi Asimmetria Ultimo Controllo:** Sbilanciamento del **{abs(v_dx - v_sn)/max(v_dx, v_sn)*100:.1f}%** (Arto DX: {v_dx} kg | Arto SN: {v_sn} kg)")
+                    
+                    idx_dx, idx_sn = mappa_indici_forza[distretto]
+                    
+                    # Generazione del grafico di forza basato esclusivamente sulle posizioni di memoria
+                    df_forza = storico_val.iloc[:, [idx_dx, idx_sn]].copy()
+                    df_forza.columns = [f"{distretto} DX (Kg)", f"{distretto} SN (Kg)"]
+                    st.line_chart(df_forza)
+                    
+                    # Calcolo istantaneo asimmetria
+                    ult_rec = storico_val.iloc[-1]
+                    v_dx = ult_rec.iloc[idx_dx]
+                    v_sn = ult_rec.iloc[idx_sn]
+                    if pd.notna(v_dx) and pd.notna(v_sn) and v_dx > 0:
+                        st.caption(f"⚖️ **Analisi Asimmetria Ultimo Controllo:** Sbilanciamento del **{abs(v_dx - v_sn)/max(v_dx, v_sn)*100:.1f}%** (Arto DX: {v_dx} kg | Arto SN: {v_sn} kg)")
             else:
-                st.info("ℹ️ Questo specifico paziente non ha ancora test funzionali o di follow-up registrati nella scheda delle valutazioni.")
+                st.info("ℹ️ Questo specifico paziente non ha ancora test funzionali registrati.")
