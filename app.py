@@ -162,8 +162,8 @@ if modalita_principale == "📋 Screening Iniziale (Paziente)":
         v5 = st.slider("5. Quando mi arrabbio o mi spavento, fatico a calmarmi fisicamente", 1, 10, 5)
         v6 = st.slider("6. Quanto la fa sentire furioso/a l'idea di aver perso parte della sua mobilità?", 1, 10, 5)
         v7 = st.slider("7. Non avrei così tanto dolore se potessi controllare la mia mente", 1, 10, 5)
-        v8 = st.slider("8. When si sente dolore, interrompe immediatamente qualsiasi attività?", 1, 10, 5)
-        v9 = st.slider("9. Quanto crede che l'attività fisica sia sicura ed efficace per la sua salute?", 1, 10, 5)
+        v8 = st.slider("8. Quando si sente dolore, interrompe immediatamente qualsiasi attività?", 1, 10, 5)
+        v9 = st.slider("9. Quanto crede che l'attività fisica sia sicuro ed efficace per la sua salute?", 1, 10, 5)
         v10 = st.slider("10. Sente di non poter svolgere i compiti domestici per paura di subire lesioni?", 1, 10, 5)
         v11 = st.slider("11. Sente che le attività quotidiane aumentano il rischio di usura articolare?", 1, 10, 5)
         v12 = st.slider("12. Quanto si sente spaventato/a all'idea di perdere l'equilibrio e cadere?", 1, 10, 5)
@@ -259,7 +259,6 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 with c_f2: step_30 = st.number_input("30-Sec Step Test (rep)", value=None, step=1)
                 with c_f3: fc_post = st.number_input("FC immediata Post-Test (bpm)", value=None)
                 
-                # INTEGRAZIONE COLONNE H e I DELLA FOTO CARICATA
                 c_f4, c_f5, c_f6 = st.columns(3)
                 with c_f4: tug = st.number_input("Timed Up & Go - TUG (secondi)", value=None, format="%.2f")
                 with c_f5: sts_5x = st.number_input("5 Times Chair Stand - 5xSTS (secondi)", value=None, format="%.2f")
@@ -289,10 +288,9 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 salva_test = st.form_submit_button("💾 Salva Record nel Database")
 
             if salva_test:
-                # Strutturazione array rispettando: H=sat_post (7), I=tempo_rec (8), J="" (9, vuota per codice)
                 riga_val_out = [
                     datetime.now().strftime("%d/%m/%Y %H.%M.%S"), pas, fc_rip, sat_rip, chair_30, step_30, fc_post, 
-                    sat_post, tempo_rec, "", # <--- Indici 7, 8, 9 (Corrispondenti a H, I, J della foto)
+                    sat_post, tempo_rec, "", 
                     paz_scelto, tug, sts_5x, sppb_eq, sppb_cam, sppb_ch, q_dx, q_sn, g_dx, g_sn, p_dx, p_sn, h_dx, h_sn, fc_max_tanaka, fase_test
                 ]
                 try:
@@ -304,7 +302,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     st.error(f"Errore nel salvataggio: {e}")
 
         # ----------------------------------------------------------------------
-        # SUB-AMBITO 2: ANALISI LONGITUDINALE CON INDICATORI MDC
+        # SUB-AMBITO 2: ANALISI LONGITUDINALE CON INDICATORI MDC & PLOTLY
         # ----------------------------------------------------------------------
         elif sub_menu == "📈 Analisi Longitudinale & Grafici":
             st.subheader("Evoluzione Temporale e Verifica della Significatività Clinica (MDC)")
@@ -313,10 +311,11 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
             storico_val = df_valutazioni[df_valutazioni.iloc[:, 10] == paz_scelto].copy() if not df_valutazioni.empty else pd.DataFrame()
             
             if not storico_val.empty and len(storico_val) > 0:
+                # ORDINAMENTO CRONOLOGICO DA SINISTRA (BASELINE) A DESTRA (FOLLOW-UP)
                 ordine_cronologico = {f: i for i, f in enumerate(OPZIONI_FASE)}
-                storico_val["Ordine"] = storico_val.iloc[:, 25].map(ordine_cronologico)
-                storico_val = storico_val.sort_values("Ordine")
-                storico_val.index = storico_val.apply(formatta_asse_x, axis=1)
+                storico_val["Ordine"] = storico_val.iloc[:, 25].map(ordine_cronologico).fillna(99)
+                storico_val = storico_val.sort_values("Ordine", ascending=True)
+                storico_val["Asse_X"] = storico_val.apply(formatta_asse_x, axis=1)
                 
                 val_baseline = storico_val.iloc[0]
                 val_attuale = storico_val.iloc[-1]
@@ -345,17 +344,38 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     stato_sts = "✅ Significativo" if delta_sts <= MDC_SOGLIE["STS_5X"] else "❌ Sotto soglia MDC"
                     st.metric(label="Delta 5xSTS (Target: -2.3s)", value=f"{delta_sts} s", delta=f"{stato_sts}", delta_color="inverse")
 
-                tab_funz, tab_forza = st.tabs(["Performance Motorie", "Dinamometria di Forza"])
+                tab_funz, tab_forza, tab_emo = st.tabs(["Performance Motorie", "Dinamometria di Forza per Distretti", "Capacità Emodinamiche & Recupero"])
+                
                 with tab_funz:
-                    st.write("**Evoluzione Test Funzionali Cronometrati (Secondi)**")
-                    df_linee_tempi = storico_val.iloc[:, [11, 12]].copy()
-                    df_linee_tempi.columns = ["Timed Up & Go (TUG)", "Test 5xSTS"]
-                    st.line_chart(df_linee_tempi)
+                    fig_funz = go.Figure()
+                    fig_funz.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 11], name="Timed Up & Go (TUG)", mode='lines+markers', line=dict(width=3)))
+                    fig_funz.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 12], name="Test 5xSTS", mode='lines+markers', line=dict(width=3)))
+                    fig_funz.update_layout(title="Evoluzione Test Funzionali Cronometrati (Secondi)", xaxis_title="Timeline Valutazioni (Inizio ➔ Successive)", yaxis_title="Tempo (s)", legend_orientation="h")
+                    st.plotly_chart(fig_funz, use_container_width=True)
+                
                 with tab_forza:
-                    st.write("**Evoluzione Forza Massima Isometrica (Kg)**")
-                    df_linee_forza = storico_val.iloc[:, [16, 17, 22, 23]].copy()
-                    df_linee_forza.columns = ["Quad DX (Kg)", "Quad SN (Kg)", "Handgrip DX (Kg)", "Handgrip SN (Kg)"]
-                    st.line_chart(df_linee_forza)
+                    fig_forza = go.Figure()
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 16], name="Quadricipite DX", mode='lines+markers'))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 17], name="Quadricipite SN", mode='lines+markers'))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 18], name="Gluteo DX", mode='lines+markers', line=dict(dash='dash')))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 19], name="Gluteo SN", mode='lines+markers', line=dict(dash='dash')))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 20], name="Iliopsoas DX", mode='lines+markers', line=dict(dash='dot')))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 21], name="Iliopsoas SN", mode='lines+markers', line=dict(dash='dot')))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 22], name="Handgrip DX", mode='lines+markers', line=dict(width=3)))
+                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 23], name="Handgrip SN", mode='lines+markers', line=dict(width=3)))
+                    fig_forza.update_layout(title="Evoluzione della Forza Muscolare Massima per Distretto", xaxis_title="Timeline Valutazioni (Inizio ➔ Successive)", yaxis_title="Forza Espressa (Kg)", legend_orientation="h")
+                    st.plotly_chart(fig_forza, use_container_width=True)
+                    
+                with tab_emo:
+                    fig_emo = go.Figure()
+                    fig_emo.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 1], name="PAS Riposo (mmHg)", mode='lines+markers'))
+                    fig_emo.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 2], name="FC Riposo (bpm)", mode='lines+markers'))
+                    fig_emo.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 6], name="FC Immediata Post-Test (bpm)", mode='lines+markers', line=dict(width=3)))
+                    fig_emo.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 3], name="SatO2 Riposo (%)", mode='lines+markers'))
+                    fig_emo.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 7], name="SatO2 Post-Test (%) [Col. H]", mode='lines+markers', line=dict(width=3)))
+                    fig_emo.add_trace(go.Bar(x=storico_val["Asse_X"], y=storico_val.iloc[:, 8], name="Tempo di recupero (min) [Col. I]", opacity=0.4))
+                    fig_emo.update_layout(title="Adattamento Emodinamico e Tolleranza al Carico", xaxis_title="Timeline Valutazioni (Inizio ➔ Successive)", yaxis_title="Valori metrici", legend_orientation="h")
+                    st.plotly_chart(fig_emo, use_container_width=True)
             else:
                 st.info("Dati insufficienti per generare analisi longitudinali per questo paziente.")
 
@@ -368,38 +388,47 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
             
             storico_paz = df_paziente[df_paziente.iloc[:, 2] == paz_scelto].copy()
             if not storico_paz.empty:
-                fasi_disponibili = storico_paz.iloc[:, 31].unique().tolist()
-                fase_scelta = st.selectbox("Seleziona fase di screening da visualizzare:", fasi_disponibili)
+                # RISOLUZIONE BUG DI INDICE: Eliminazione nuli e protezione da vettori vuoti
+                fasi_disponibili = storico_paz.iloc[:, 31].dropna().unique().tolist()
                 
-                riga_mirata = storico_paz[storico_paz.iloc[:, 31] == fase_scelta].iloc[0]
-                dimensioni = calcola_dimensioni_biopsicosociali(riga_mirata)
-                
-                categorie = list(dimensioni.keys())
-                valori = list(dimensioni.values())
-                valori += valori[:1]
-                categorie += categorie[:1]
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatterpolar(
-                    r=valori,
-                    theta=categorie,
-                    fill='toself',
-                    name=fase_scelta,
-                    line_color="#1f77b4"
-                ))
-                fig.update_layout(
-                    polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
-                    showlegend=True,
-                    title=f"Mappatura Biopsicosociale - ID {paz_scelto} ({fase_scelta})"
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                st.markdown("##### Interpretazione Clinica del Profilo:")
-                if dimensioni["Kinesiofobia & Paura"] > 6:
-                    st.warning("⚠️ **Livello elevato di Kinesiofobia:** Il paziente manifesta forti barriere cognitive al movimento. Priorità all'educazione neuroscientifica del dolore (PNE) e ad una progressione di carico altamente graduale (Graded Exposure).")
-                if dimensioni["Accettazione (Framework ACT)"] < 4:
-                    st.info("💡 **Bassa Accettazione Psicologica:** Sincronizzare l'allenamento con obiettivi di valore personali del paziente, integrando strategie di mindfulness e defusione per svincolare l'azione motoria dalla presenza del sintomo.")
+                if not fasi_disponibili:
+                    st.warning("Nessuna fase di screening valida trovata per questo paziente.")
+                else:
+                    fase_scelta = st.selectbox("Seleziona fase di screening da visualizzare:", fasi_disponibili)
+                    
+                    sub_df = storico_paz[storico_paz.iloc[:, 31].astype(str).str.strip() == str(fase_scelta).strip()]
+                    
+                    if sub_df.empty:
+                        st.error("Errore nel recupero della riga selezionata.")
+                    else:
+                        riga_mirata = sub_df.iloc[0]
+                        dimensioni = calcola_dimensioni_biopsicosociali(riga_mirata)
+                        
+                        categorie = list(dimensioni.keys())
+                        valori = list(dimensioni.values())
+                        valori += valori[:1]
+                        categorie += categorie[:1]
+                        
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatterpolar(
+                            r=valori,
+                            theta=categorie,
+                            fill='toself',
+                            name=fase_scelta,
+                            line_color="#1f77b4"
+                        ))
+                        fig.update_layout(
+                            polar=dict(radialaxis=dict(visible=True, range=[0, 10])),
+                            showlegend=True,
+                            title=f"Mappatura Biopsicosociale - ID {paz_scelto} ({fase_scelta})"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                        st.markdown("##### Interpretazione Clinica del Profilo:")
+                        if dimensioni["Kinesiofobia & Paura"] > 6:
+                            st.warning("⚠️ **Livello elevato di Kinesiofobia:** Il paziente manifesta forti barriere cognitive al movimento. Priorità all'educazione neuroscientifica del dolore (PNE) e ad una progressione di carico altamente graduale (Graded Exposure).")
+                        if dimensioni["Accettazione (Framework ACT)"] < 4:
+                            st.info("💡 **Bassa Accettazione Psicologica:** Sincronizzare l'allenamento con obiettivi di valore personali del paziente, integrando strategie di mindfulness e defusione per svincolare l'azione motoria dalla presenza del sintomo.")
 
         # ----------------------------------------------------------------------
         # SUB-AMBITO 4: ALGORITMI DI SCREENING AUTOMATIZZATI & CDS
@@ -489,9 +518,10 @@ elif modalita_principale == "🔐 Area Personale (Paziente)":
             st.subheader("📈 L'Evoluzione dei tuoi Risultati nel Tempo")
             
             if not storico_val_paz.empty and len(storico_val_paz) > 0:
+                # ANCHE QUI ORDINAMENTO DA SINISTRA A DESTRA RIGOROSO
                 ordine_cronologico = {f: i for i, f in enumerate(OPZIONI_FASE)}
-                storico_val_paz["Ordine"] = storico_val_paz.iloc[:, 25].map(ordine_cronologico)
-                storico_val_paz = storico_val_paz.sort_values("Ordine")
+                storico_val_paz["Ordine"] = storico_val_paz.iloc[:, 25].map(ordine_cronologico).fillna(99)
+                storico_val_paz = storico_val_paz.sort_values("Ordine", ascending=True)
                 
                 def etichetta_paziente(riga):
                     fase = str(riga.iloc[25])
@@ -501,21 +531,32 @@ elif modalita_principale == "🔐 Area Personale (Paziente)":
                     elif "9" in fase: return "Dopo 9 Mesi"
                     elif "12" in fase: return "Dopo 12 Mesi"
                     return fase
-                storico_val_paz.index = storico_val_paz.apply(etichetta_paziente, axis=1)
+                storico_val_paz["Visualizzazione_X"] = storico_val_paz.apply(etichetta_paziente, axis=1)
                 
-                c_p1, c_p2 = st.columns(2)
+                t1, t2, t3 = st.tabs(["Capacità Funzionali e Agilità", "Sviluppo della Forza", "Parametri di Salute ed Emodinamica"])
                 
-                with c_p1:
-                    st.write("##### 🪑 Capacità di Alzarsi dalla Sedia (Più ripetizioni indicano più forza)")
-                    df_sedia = storico_val_paz.iloc[:, [4]].copy()
-                    df_sedia.columns = ["Numero di ripetizioni in 30 secondi"]
-                    st.line_chart(df_sedia)
+                with t1:
+                    fig_p1 = go.Figure()
+                    fig_p1.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 4], name="Alzate dalla sedia (30s)", mode="lines+markers", line=dict(width=3, color="green")))
+                    fig_p1.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 11], name="Agilità nel Cammino (TUG - Secondi)", mode="lines+markers", line=dict(width=3, color="orange")))
+                    fig_p1.update_layout(title="Miglioramento dell'Autonomia Motoria", xaxis_title="Evoluzione del mio percorso", yaxis_title="Valori del test", legend_orientation="h")
+                    st.plotly_chart(fig_p1, use_container_width=True)
                     
-                with c_p2:
-                    st.write("##### 🚶 Velocità e Sicurezza nel Cammino (Meno secondi indicano maggiore agilità)")
-                    df_tug_paz = storico_val_paz.iloc[:, [11]].copy()
-                    df_tug_paz.columns = ["Tempo impiegato nei test (Secondi)"]
-                    st.line_chart(df_tug_paz)
+                with t2:
+                    fig_p2 = go.Figure()
+                    fig_p2.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 16], name="Forza Gamba Destra", mode="lines+markers"))
+                    fig_p2.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 17], name="Forza Gamba Sinistra", mode="lines+markers"))
+                    fig_p2.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 22], name="Forza Presa Mano Destra", mode="lines+markers", line=dict(dash="dash")))
+                    fig_p2.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 23], name="Forza Presa Mano Sinistra", mode="lines+markers", line=dict(dash="dash")))
+                    fig_p2.update_layout(title="Andamento della Forza Muscolare (Kg)", xaxis_title="Evoluzione del mio percorso", yaxis_title="Forza (Kg)", legend_orientation="h")
+                    st.plotly_chart(fig_p2, use_container_width=True)
+                    
+                with t3:
+                    fig_p3 = go.Figure()
+                    fig_p3.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 6], name="Frequenza Cardiaca Sotto Sforzo", mode="lines+markers", line=dict(color="red")))
+                    fig_p3.add_trace(go.Scatter(x=storico_val_paz["Visualizzazione_X"], y=storico_val_paz.iloc[:, 7], name="Saturazione Ossigeno Post Test (%)", mode="lines+markers", line=dict(color="blue")))
+                    fig_p3.update_layout(title="I miei Parametri di Efficienza Cardiovascolare", xaxis_title="Evoluzione del mio percorso", yaxis_title="Valore misurato", legend_orientation="h")
+                    st.plotly_chart(fig_p3, use_container_width=True)
                 
                 st.markdown("---")
                 st.info("🎯 **Nota del Team Medico:** I tuoi grafici mostrano l'impegno che stai mettendo nelle sessioni riabilitative. Piccoli e costanti miglioramenti nel tempo rappresentano la chiave per conservare un'ottima autonomia e ridurre il rischio di cadute nelle attività di tutti i giorni. Continua così!")
