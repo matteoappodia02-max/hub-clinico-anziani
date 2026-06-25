@@ -120,6 +120,69 @@ def esegui_screening_geriatrici(riga_valutazione, sesso_paziente):
         
     return {"sarcopenia": alert_sarcopenia, "frailty": alert_frailty, "cadute": alert_cadute}
 
+def genera_progressione_senior(dati_paziente, test_funzionali):
+    """
+    Algoritmo per la generazione di progressioni di allenamento contro resistenza
+    per soggetti in età geriatrica.
+    """
+    patologie = dati_paziente.get('patologie', [])
+    rischio_caduta = dati_paziente.get('rischio_caduta', 'basso') 
+    fragilita = dati_paziente.get('fragilita_percepita', 1) 
+    distress = dati_paziente.get('distress_emotivo', 1) 
+    esperienza = dati_paziente.get('esperienza_allenamento', 'novizio') 
+    
+    piano_allenamento = {
+        "fase_allenamento": "",
+        "intensita_forza": "",
+        "volume_forza": "",
+        "allenamento_potenza_velocita": False,
+        "parametri_potenza": {},
+        "recupero_tra_sedute": "48-72 ore",
+        "note_sicurezza": [],
+        "focus_fisioterapista": []
+    }
+
+    if "ipertensione" in patologie or "cardiopatia" in patologie:
+        piano_allenamento["note_sicurezza"].append("Assolutamente evitare la manovra di Valsalva.")
+        piano_allenamento["note_sicurezza"].append("Mantenere ripetizioni > 8 evitando sforzi massimali.")
+    
+    if "osteoporosi" in patologie:
+        piano_allenamento["note_sicurezza"].append("Includere esercizi multi-articolari per lo stimolo assiale, evitando flessioni spinali.")
+    
+    if "artrosi" in patologie or "dolore_articolare" in patologie:
+        piano_allenamento["note_sicurezza"].append("Selezionare range di movimento senza dolore.")
+
+    if fragilita > 7 or distress > 7:
+        piano_allenamento["fase_allenamento"] = "Condizionamento di base / Adattamento Anatomico"
+        piano_allenamento["note_sicurezza"].append("Livelli di distress e fragilità elevati: ridurre il volume del 20-30%.")
+        esperienza = "novizio"
+
+    if esperienza == "novizio":
+        piano_allenamento["intensita_forza"] = "50-70% 1RM (10-15 RM)"
+        piano_allenamento["volume_forza"] = "1-2 serie, 10-15 ripetizioni"
+        piano_allenamento["focus_fisioterapista"].append("Focus su apprendimento motorio e controllo posturale.")
+    elif esperienza == "intermedio":
+        piano_allenamento["intensita_forza"] = "60-80% 1RM (8-12 RM)"
+        piano_allenamento["volume_forza"] = "2-3 serie, 8-12 ripetizioni"
+        piano_allenamento["focus_fisioterapista"].append("Implementare sovraccarico progressivo.")
+    elif esperienza == "avanzato":
+        piano_allenamento["intensita_forza"] = "70-85% 1RM (6-10 RM)"
+        piano_allenamento["volume_forza"] = "3+ serie, 6-10 ripetizioni"
+        piano_allenamento["focus_fisioterapista"].append("Introdurre variazioni di carico ondulate.")
+
+    if rischio_caduta in ["medio", "alto"] and fragilita < 8:
+        piano_allenamento["allenamento_potenza_velocita"] = True
+        piano_allenamento["focus_fisioterapista"].append("Importanza critica della RFD (Rate of Force Development).")
+        piano_allenamento["parametri_potenza"] = {
+            "intensita": "30-60% 1RM",
+            "volume": "1-3 serie, 3-6 ripetizioni",
+            "esecuzione": "Massima velocità concentrica"
+        }
+
+    if test_funzionali.get("deficit_lower_body", False):
+        piano_allenamento["focus_fisioterapista"].append("Priorità all'ipertrofia e forza arti inferiori.")
+
+    return piano_allenamento
 # ==============================================================================
 # STRUTTURA DI NAVIGAZIONE (SIDEBAR)
 # ==============================================================================
@@ -223,6 +286,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
         "🧠 Analisi Multidimensionale (BPS)", 
         "🧫 Clinical Decision Support & Screening", 
         "💾 Export & Data Pipeline per la Ricerca"
+        "🧪 Riabilitazione ed allenamento"
     ], horizontal=True)
     st.markdown("---")
 
@@ -519,7 +583,53 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         st.dataframe(df_wide.head())
                     except Exception as e:
                         st.error(f"Errore nella strutturazione del formato WIDE (Verifica che non ci siano duplicati della stessa fase per lo stesso paziente): {e}")
-
+        # ----------------------------------------------------------------------
+        # SUB-AMBITO 6: RIABILITAZIONE ED ALLENAMENTO
+        # ----------------------------------------------------------------------
+        elif sub_menu == "🧪 Riabilitazione ed allenamento":
+            st.subheader("Algoritmo Prescrittivo di Allenamento")
+            paz_scelto = st.selectbox("Seleziona Paziente:", lista_pazienti)
+            
+            # Recupero dati
+            dati_paz = df_paziente[df_paziente.iloc[:, 2].astype(str).str.strip() == paz_scelto].iloc[0]
+            val_paz = df_valutazioni[df_valutazioni.iloc[:, 10].astype(str).str.strip() == paz_scelto]
+            
+            if not val_paz.empty:
+                ultima_val = val_paz.iloc[-1]
+                
+                # Input dinamico per l'algoritmo
+                esper_all = st.selectbox("Livello di esperienza attuale:", ["novizio", "intermedio", "avanzato"])
+                
+                # Mappatura dati dal DB all'algoritmo
+                dati_input = {
+                    "patologie": str(dati_paz[7]).lower().split(", ") + str(dati_paz[8]).lower().split(", "),
+                    "rischio_caduta": "alto" if "Rosso" in esegui_screening_geriatrici(ultima_val, "Uomo")["cadute"] else "basso",
+                    "fragilita_percepita": 5, # Default, potresti aggiungere un input slider
+                    "distress_emotivo": 4,     # Default, potresti aggiungere un input slider
+                    "esperienza_allenamento": esper_all
+                }
+                
+                # Determinazione deficit
+                deficit = (float(ultima_val.iloc[13]) < 2) # Esempio: SPPB < 2 per una componente indica deficit
+                test_input = {"deficit_lower_body": deficit}
+                
+                if st.button("Genera Piano di Allenamento"):
+                    piano = genera_progressione_senior(dati_input, test_input)
+                    
+                    st.success("Piano generato con successo:")
+                    st.write(f"**Fase:** {piano['fase_allenamento']}")
+                    st.write(f"**Intensità:** {piano['intensita_forza']}")
+                    st.write(f"**Volume:** {piano['volume_forza']}")
+                    
+                    with st.expander("Note di sicurezza e Focus Clinico"):
+                        for nota in piano['note_sicurezza']: st.warning(nota)
+                        for focus in piano['focus_fisioterapista']: st.info(focus)
+                        
+                    if piano["allenamento_potenza_velocita"]:
+                        st.subheader("Modulo Potenza")
+                        st.json(piano["parametri_potenza"])
+            else:
+                st.warning("Nessun dato funzionale presente per questo paziente.")
 # ==============================================================================
 # INTERFACCIA 3: AREA PERSONALE DIGITALE DEL PAZIENTE
 # ==============================================================================
