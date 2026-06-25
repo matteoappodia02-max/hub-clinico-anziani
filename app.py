@@ -285,7 +285,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
         "📈 Analisi Longitudinale & Grafici", 
         "🧠 Analisi Multidimensionale (BPS)", 
         "🧫 Clinical Decision Support & Screening", 
-        "💾 Export & Data Pipeline per la Ricerca"
+        "💾 Export & Data Pipeline per la Ricerca",
         "🧪 Riabilitazione ed allenamento"
     ], horizontal=True)
     st.markdown("---")
