@@ -118,45 +118,201 @@ def genera_progressione_senior(dati_paziente, test_funzionali):
     return piano_allenamento
 
 def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
-    st.header("👨‍⚕️ Area Fisioterapista: Analisi e Progressione Clinica")
+    st.header("🦾 Progressione Senior (Algoritmo NSCA & Zatsiorsky)")
+    st.markdown("Monitora lo storico clinico e genera un piano d'allenamento basato sulle prove scientifiche.")
     
-    lista_pazienti = df_pazienti['ID Paziente'].dropna().unique()
-    paziente_selezionato = st.selectbox("Seleziona ID Paziente da analizzare", lista_pazienti)
-    
-    if paziente_selezionato:
-        # Estrazione dati dell'ultimo record del paziente
-        storico_paz = df_pazienti[df_pazienti['ID Paziente'] == paziente_selezionato]
-        ultimo_record = storico_paz.iloc[-1]
-        
-        # Mappatura Patologie
-        patologie_raw = str(ultimo_record.get("Patologie Sistemiche", "")) + " " + str(ultimo_record.get("Condizioni Meccaniche", ""))
-        patologie_attive = [p for p in ["ipertensione", "cardiopatia", "osteoporosi", "artrosi"] if p in patologie_raw.lower()]
-        
-        # Estrazione dati numerici
-        fragilita_max = max(pd.to_numeric(ultimo_record.get("V12_Paura_Cadere", 0), errors='coerce'), 
-                           pd.to_numeric(ultimo_record.get("V13_Instabilita_Gambe", 0), errors='coerce'))
-        
-        dati_algoritmo = {
-            "patologie": patologie_attive,
-            "rischio_caduta": "alto" if fragilita_max >= 7 else ("medio" if fragilita_max >= 4 else "basso"),
-            "fragilita_percepita": fragilita_max,
-            "distress_emotivo": pd.to_numeric(ultimo_record.get("Dolore NRS", 0), errors='coerce'),
-            "esperienza_allenamento": "novizio"
-        }
-        
-        # Esecuzione Algoritmo
-        risultato = genera_progressione_senior(dati_algoritmo, {"deficit_lower_body": False})
-        
-        # Visualizzazione UI
-        col1, col2 = st.columns(2)
-        with col1:
-            st.info(f"**Intensità:** {risultato['intensita_forza']}")
-        with col2:
-            st.warning(f"**Fase:** {risultato['fase_allenamento']}")
-            
-        if risultato["note_sicurezza"]:
-            st.error("⚠️ **Note Sicurezza:** " + ", ".join(risultato["note_sicurezza"]))
+    if df_pazienti.empty:
+        st.warning("Nessun dato paziente disponibile al momento.")
+        return
 
+    # Trova la colonna ID in modo flessibile per evitare KeyError
+    colonna_id = None
+    for col in ["ID Paziente", "ID_Paziente", "id paziente", "id_paziente"]:
+        if col in df_pazienti.columns:
+            colonna_id = col
+            break
+            
+    # Fallback sicuro all'indice di colonna 2 (la terza colonna) se non trova il nome esatto
+    if colonna_id is None and len(df_pazienti.columns) > 2:
+        colonna_id = df_pazienti.columns[2]
+
+    if colonna_id is None:
+        st.error("Errore di configurazione: impossibile identificare la colonna ID Paziente.")
+        return
+
+    # Estrazione degli ID pazienti validi e puliti
+    lista_pazienti = df_pazienti[colonna_id].dropna().astype(str).str.strip().unique().tolist()
+    paziente_selezionato = st.selectbox("Seleziona ID Paziente da analizzare", lista_pazienti, key="sb_nsca_prog")
+    
+    if paciente_selezionato:
+        st.markdown("---")
+        
+        # Filtra lo storico del paziente
+        storico_paz = df_pazienti[df_pazienti[colonna_id].astype(str).str.strip() == paziente_selezionato]
+        
+        # Trova la colonna ID anche nel foglio delle valutazioni
+        col_id_val = None
+        for col in ["ID Paziente", "ID_Paziente", "id paziente", "id_paziente"]:
+            if col in df_valutazioni.columns:
+                col_id_val = col
+                break
+        if col_id_val is None and len(df_valutazioni.columns) > 10:
+            col_id_val = df_valutazioni.columns[10]
+        
+        storico_val = pd.DataFrame()
+        if col_id_val is not None and not df_valutazioni.empty:
+            storico_val = df_valutazioni[df_valutazioni[col_id_val].astype(str).str.strip() == paziente_selezionato]
+        
+        st.subheader("📈 Storico Andamento Clinico")
+        
+        col_grafici_1, col_grafici_2 = st.columns(2)
+        
+        # Grafico 1: Andamento Paura di Cadere (V12)
+        with col_grafici_1:
+            col_v12 = None
+            for col in storico_paz.columns:
+                if "V12" in col or "Paura_Cadere" in col:
+                    col_v12 = col
+                    break
+            if col_v12 is None and len(storico_paz.columns) > 23:
+                col_v12 = storico_paz.columns[23] # Indice colonna V12 nel database standard
+                
+            if col_v12 and not storico_paz.empty:
+                try:
+                    fig = px.line(storico_paz, x=storico_paz.columns[0], y=col_v12, 
+                                  markers=True, title="Andamento Paura di Cadere (V12)")
+                    st.plotly_chart(fig, use_container_width=True)
+                except:
+                    st.info("Impossibile caricare il tracciato della Paura di Cadere.")
+            else:
+                st.info("Dati insufficienti per il grafico Paura di Cadere.")
+                
+        # Grafico 2: Andamento Chair Stand Test
+        with col_grafici_2:
+            col_chair = None
+            for col in storico_val.columns:
+                if "Chair" in col or "30-Second" in col or "chair stand" in col.lower():
+                    col_chair = col
+break
+            if col_chair is None and len(storico_val.columns) > 4:
+                col_chair = storico_val.columns[4] # Indice colonna nel database standard
+                
+            if col_chair and not storico_val.empty:
+                try:
+                    fig2 = px.bar(storico_val, x=storico_val.columns[0], y=col_chair, 
+                                  title="Andamento 30s Chair Stand Test")
+                    st.plotly_chart(fig2, use_container_width=True)
+                except:
+                    st.info("Impossibile caricare il tracciato del Chair Stand Test.")
+            else:
+                st.info("Dati insufficienti per il grafico Chair Stand Test.")
+
+        # ---------------------------------------------------------
+        # MAPPATURA CLINICA PER L'ALGORITMO
+        # ---------------------------------------------------------
+        if not storico_paz.empty:
+            ultimo_record = storico_paz.iloc[-1]
+            
+            # Mappatura Patologie
+            col_pat_sist = next((col for col in storico_paz.columns if "Sistemiche" in col or "Comorbilità" in col), None)
+            col_cond_mecc = next((col for col in storico_paz.columns if "Meccaniche" in col or "Limitazioni" in col), None)
+            
+            if col_pat_sist is None and len(storico_paz.columns) > 8: col_pat_sist = storico_paz.columns[8]
+            if col_cond_mecc is None and len(storico_paz.columns) > 7: col_cond_mecc = storico_paz.columns[7]
+            
+            pat_sist_val = str(ultimo_record[col_pat_sist]) if col_pat_sist else ""
+            cond_mecc_val = str(ultimo_record[col_cond_mecc]) if col_cond_mecc else ""
+            
+            patologie_raw = (pat_sist_val + " " + cond_mecc_val).lower()
+            patologie_attive = [p for p in ["ipertensione", "cardiopatia", "osteoporosi", "artrosi"] if p in patologie_raw]
+
+            # Mappatura indicatori psicocomportamentali
+            col_v13 = next((col for col in storico_paz.columns if "V13" in col or "Instabilita" in col), None)
+            col_v9 = next((col for col in storico_paz.columns if "V9" in col or "Danno" in col), None)
+            col_v10 = next((col for col in storico_paz.columns if "V10" in col or "Evitamento" in col), None)
+            col_dolore = next((col for col in storico_paz.columns if "Dolore" in col or "NRS" in col), None)
+            
+            if col_v13 is None and len(storico_paz.columns) > 24: col_v13 = storico_paz.columns[24]
+            if col_v9 is None and len(storico_paz.columns) > 20: col_v9 = storico_paz.columns[20]
+            if col_v10 is None and len(storico_paz.columns) > 21: col_v10 = storico_paz.columns[21]
+            if col_dolore is None and len(storico_paz.columns) > 10: col_dolore = storico_paz.columns[10]
+
+            paura_cadere = pd.to_numeric(ultimo_record[col_v12], errors='coerce') if col_v12 else 0
+            instabilita = pd.to_numeric(ultimo_record[col_v13], errors='coerce') if col_v13 else 0
+            paura_danno = pd.to_numeric(ultimo_record[col_v9], errors='coerce') if col_v9 else 0
+            evitamento = pd.to_numeric(ultimo_record[col_v10], errors='coerce') if col_v10 else 0
+            dolore_nrs = pd.to_numeric(ultimo_record[col_dolore], errors='coerce') if col_dolore else 0
+
+            # Pulizia NaN
+            paura_cadere = 0 if pd.isna(paura_cadere) else paura_cadere
+            instabilita = 0 if pd.isna(instabilita) else instabilita
+            paura_danno = 0 if pd.isna(paura_danno) else paura_danno
+            evitamento = 0 if pd.isna(evitamento) else evitamento
+            dolore_nrs = 0 if pd.isna(dolore_nrs) else dolore_nrs
+
+            fragilita_max = max(paura_cadere, instabilita)
+            distress_max = max(paura_danno, evitamento, dolore_nrs)
+
+            rischio_cad = "basso"
+            if fragilita_max >= 7:
+                rischio_cad = "alto"
+            elif 4 <= fragilita_max < 7:
+                rischio_cad = "medio"
+dati_algoritmo_paz = {
+                "patologie": patologie_attive,
+                "rischio_caduta": rischio_cad,
+                "fragilita_percepita": fragilita_max,
+                "distress_emotivo": distress_max,
+                "esperienza_allenamento": "novizio"
+            }
+
+            # Verifica deficit di forza arti inferiori
+            dati_algoritmo_test = {"deficit_lower_body": False}
+            if not storico_val.empty:
+                ultimo_test = storico_val.iloc[-1]
+                # Quad DX (colonna 16), Quad SN (colonna 17) nel foglio valutazioni standard
+                forza_dx = pd.to_numeric(ultimo_test.iloc[16], errors='coerce') if len(ultimo_test) > 16 else 0
+                forza_sn = pd.to_numeric(ultimo_test.iloc[17], errors='coerce') if len(ultimo_test) > 17 else 0
+                
+                forza_dx = 0 if pd.isna(forza_dx) else forza_dx
+                forza_sn = 0 if pd.isna(forza_sn) else forza_sn
+                
+                if (forza_dx > 0 and forza_sn > 0):
+                    if (forza_dx < 10 and forza_sn < 10) or abs(forza_dx - forza_sn) > (max(forza_dx, forza_sn) * 0.20):
+                        dati_algoritmo_test["deficit_lower_body"] = True
+
+            # Esecuzione dell'algoritmo
+            risultato_progressione = genera_progressione_senior(dati_algoritmo_paz, dati_algoritmo_test)
+
+            st.markdown("---")
+            st.subheader("🎯 Programmazione del Carico (Zatsiorsky & NSCA)")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"Intensità Forza: {risultato_progressione['intensita_forza']}")
+                st.info(f"Volume Forza: {risultato_progressione['volume_forza']}")
+            with col2:
+                st.warning(f"Fase Allenamento: {risultato_progressione['fase_allenamento']}")
+                st.warning(f"Recupero Consigliato: {risultato_progressione['recupero_tra_sedute']}")
+
+            # Modulo Note di Sicurezza
+            if risultato_progressione["note_sicurezza"]:
+                st.error("⚠️ Note di Sicurezza e Patologie:\n" + 
+                         "\n".join([f"- {nota}" for nota in risultato_progressione["note_sicurezza"]]))
+
+            # Modulo Focus Clinico
+            if risultato_progressione["focus_fisioterapista"]:
+                st.success("🎯 Focus e Priorità Cliniche:\n" + 
+                           "\n".join([f"- {focus}" for focus in risultato_progressione["focus_fisioterapista"]]))
+
+            # Modulo Prevenzione Cadute / Potenza
+            if risultato_progressione["allenamento_potenza_velocita"]:
+                with st.expander("⚡ Protocollo Prevenzione Cadute (Sviluppo Potenza/RFD)", expanded=True):
+                    param_pot = risultato_progressione["parametri_potenza"]
+                    st.write(f"- Intensità Target: {param_pot['intensita']}")
+                    st.write(f"- Volume: {param_pot['volume']}")
+                    st.write(f"- Esecuzione: {param_pot['esecuzione']}")
+                    st.write(f"- Recupero tra serie: {param_pot['recupero_tra_serie']}")
 # ==============================================================================
 # COSTANTI SCIENTIFICHE E METRICHE DI RILEVANZA CLINICA (MDC)
 # ==============================================================================
@@ -339,8 +495,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
     if st.sidebar.button("🚪 Blocca Sessione Clinica"):
         st.session_state.fiso_auth = False
         st.rerun()
-
-    st.title("👨‍⚕️ Dashboard Clinica Avanzata & Data Management")
+st.title("👨‍⚕️ Dashboard Clinica Avanzata & Data Management")
     
     sub_menu = st.radio("Seleziona Ambito Operativo:", [
         "🦾 Progressione Senior (NSCA)",
@@ -355,10 +510,10 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
     df_paziente = leggi_dati_paziente()
     df_valutazioni = leggi_dati_valutazioni()
 
-    # Pulizia preventiva per ID Paziente (più sicura usando il nome colonna)
-    if not df_paziente.empty and "ID Paziente" in df_paziente.columns:
-        # Pulisce, rimuove i vuoti e ottiene i valori unici
-        lista_pazienti = df_paziente["ID Paziente"].dropna().astype(str).str.strip().unique().tolist()
+    # Pulizia preventiva per ID Paziente (più sicura usando il nome colonna o l'indice 2)
+    if not df_paziente.empty:
+        col_id_paz = "ID Paziente" if "ID Paziente" in df_paziente.columns else df_paziente.columns[2]
+        lista_pazienti = df_paziente[col_id_paz].dropna().astype(str).str.strip().unique().tolist()
     else:
         lista_pazienti = []
 
@@ -383,7 +538,8 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
             paz_scelto = st.selectbox("Seleziona ID Paziente target:", lista_pazienti, key="sb_registrazione")
             
             fc_max_tanaka = None
-            storico_paz = df_paziente[df_paziente["ID Paziente"].astype(str).str.strip() == paz_scelto]
+            col_id_temp = "ID Paziente" if "ID Paziente" in df_paziente.columns else df_paziente.columns[2]
+            storico_paz = df_paziente[df_paziente[col_id_temp].astype(str).str.strip() == paz_scelto]
             if not storico_paz.empty:
                 try:
                     sesso_paz = storico_paz.iloc[0, 5]
@@ -413,8 +569,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 with c_f6: sat_post = st.number_input("Saturazione O2 post test (%)", 50, 100, value=None)
                 
                 tempo_rec = st.number_input("Tempo di recupero (minuti)", value=None, step=1)
-
-                st.markdown("##### 📊 Sotto-punteggi Batteria SPPB")
+st.markdown("##### 📊 Sotto-punteggi Batteria SPPB")
                 c_s1, c_s2, c_s3 = st.columns(3)
                 with c_s1: sppb_eq = st.number_input("Punteggio Equilibrio (0-4)", 0, 4, value=None)
                 with c_s2: sppb_cam = st.number_input("Punteggio Cammino 4m (0-4)", 0, 4, value=None)
@@ -456,7 +611,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
         if not lista_pazienti:
             st.warning("Nessun paziente registrato.")
         else:
-            paz_scelto = st.selectbox("Seleziona Paziente da esaminare:", lista_pazienti, key="sb_longitudinale")
+            paz_scelto = st.selectbox("Seleziona Paciente da esaminare:", lista_pazienti, key="sb_longitudinale")
             
             df_val_clean = df_valutazioni.dropna(subset=[df_valutazioni.columns[10], df_valutazioni.columns[25]])
             storico_val = df_val_clean[df_val_clean.iloc[:, 10].astype(str).str.strip() == paz_scelto].copy()
@@ -472,8 +627,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 
                 st.markdown("#### Verifiche del Cambiamento Clinico Rispetto alla Baseline")
                 c_m1, c_m2, c_m3 = st.columns(3)
-                
-                sppb_base = sum([int(val_baseline.iloc[13]) if pd.notna(val_baseline.iloc[13]) else 0, int(val_baseline.iloc[14]) if pd.notna(val_baseline.iloc[14]) else 0, int(val_baseline.iloc[15]) if pd.notna(val_baseline.iloc[15]) else 0])
+sppb_base = sum([int(val_baseline.iloc[13]) if pd.notna(val_baseline.iloc[13]) else 0, int(val_baseline.iloc[14]) if pd.notna(val_baseline.iloc[14]) else 0, int(val_baseline.iloc[15]) if pd.notna(val_baseline.iloc[15]) else 0])
                 sppb_att = sum([int(val_attuale.iloc[13]) if pd.notna(val_attuale.iloc[13]) else 0, int(val_attuale.iloc[14]) if pd.notna(val_attuale.iloc[14]) else 0, int(val_attuale.iloc[15]) if pd.notna(val_attuale.iloc[15]) else 0])
                 delta_sppb = sppb_att - sppb_base
                 with c_m1:
@@ -511,7 +665,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 19], name="Gluteo SN", mode='lines+markers', line=dict(dash='dash')))
                     fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 20], name="Iliopsoas DX", mode='lines+markers', line=dict(dash='dot')))
                     fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 21], name="Iliopsoas SN", mode='lines+markers', line=dict(dash='dot')))
-                    fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 22], name="Handgrip DX", mode='lines+markers', line=dict(width=3)))
+fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 22], name="Handgrip DX", mode='lines+markers', line=dict(width=3)))
                     fig_forza.add_trace(go.Scatter(x=storico_val["Asse_X"], y=storico_val.iloc[:, 23], name="Handgrip SN", mode='lines+markers', line=dict(width=3)))
                     fig_forza.update_layout(title="Evoluzione della Forza Muscolare Massima per Distretto", xaxis_title="Timeline Valutazioni (Inizio ➔ Successive)", yaxis_title="Forza Espressa (Kg)", legend_orientation="h")
                     st.plotly_chart(fig_forza, use_container_width=True)
@@ -538,7 +692,8 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
         else:
             paz_scelto = st.selectbox("Seleziona ID Paziente:", lista_pazienti, key="sb_bps")
             
-            storico_paz = df_paziente[df_paziente["ID Paziente"].astype(str).str.strip() == paz_scelto].copy()
+            col_id_temp = "ID Paziente" if "ID Paziente" in df_paziente.columns else df_paziente.columns[2]
+            storico_paz = df_paziente[df_paziente[col_id_temp].astype(str).str.strip() == paz_scelto].copy()
             if not storico_paz.empty:
                 fasi_disponibili = storico_paz.iloc[:, 31].dropna().astype(str).str.strip().unique().tolist()
                 fasi_disponibili = sorted(fasi_disponibili, key=lambda x: next((i for i, opt in enumerate(OPZIONI_FASE) if x in opt), 99))
@@ -557,7 +712,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         
                         categorie = list(dimensioni.keys())
                         valori = list(dimensioni.values())
-                        valori += valori[:1]
+valori += valori[:1]
                         categorie += categorie[:1]
                         
                         fig = go.Figure()
@@ -585,14 +740,14 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         st.markdown("##### 🩺 Interpretazione Clinica del Profilo:")
                         mostrato_alert = False
                         if dimensioni["Kinesiofobia & Paura"] > 6:
-                            st.warning("⚠️ **Livello elevato di Kinesiofobia:** Il paziente manifesta forti barriere cognitive al movimento. Priorità all'educazione neuroscientifica del dolore (PNE) e ad una progressione di carico altamente graduale (Graded Exposure).")
+                            st.warning("⚠️ Livello elevato di Kinesiofobia: Il paziente manifesta forti barriere cognitive al movimento. Priorità all'educazione neuroscientifica del dolore (PNE) e ad una progressione di carico altamente graduale (Graded Exposure).")
                             mostrato_alert = True
                         if dimensioni["Accettazione (Framework ACT)"] < 4:
-                            st.info("💡 **Bassa Accettazione Psicologica:** Sincronizzare l'allenamento con obiettivi di valore personali del paziente, integrando strategie di mindfulness e defusione per svincolare l'azione motoria dalla presenza del sintomo.")
+                            st.info("💡 Bassa Accettazione Psicologica: Sincronizzare l'allenamento con obiettivi di valore personali del paziente, integrando strategie di mindfulness e defusione per svincolare l'azione motoria dalla presenza del sintomo.")
                             mostrato_alert = True
                             
                         if not mostrato_alert:
-                            st.success("✅ **Profilo Biopsicosociale Bilanciato:** I punteggi attuali indicano l'assenza di barriere psicocomportamentali critiche o livelli di allarme. Il paziente mostra un'adeguata predisposizione emotiva al movimento. Continuare con la pianificazione riabilitativa standard basata sulle necessità fisico-funzionali.")
+                            st.success("✅ Profilo Biopsicosociale Bilanciato: I punteggi attuali indicano l'assenza di barriere psicocomportamentali critiche o livelli di allarme. Il paziente mostra un'adeguata predisposizione emotiva al movimento. Continuare con la pianificazione riabilitativa standard basata sulle necessità fisico-funzionali.")
 
     # --- SOTTO-PAGINA 5: CDS ---
     elif sub_menu == "🧫 Clinical Decision Support & Screening":
@@ -603,32 +758,32 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
         else:
             paz_scelto = st.selectbox("Seleziona Paziente:", lista_pazienti, key="sb_cds")
             
-            storico_paz = df_paziente[df_paziente["ID Paziente"].astype(str).str.strip() == paz_scelto]
+            col_id_temp = "ID Paziente" if "ID Paziente" in df_paziente.columns else df_paziente.columns[2]
+            storico_paz = df_paziente[df_paziente[col_id_temp].astype(str).str.strip() == paz_scelto]
             df_val_clean = df_valutazioni.dropna(subset=[df_valutazioni.columns[10]])
             storico_val = df_val_clean[df_val_clean.iloc[:, 10].astype(str).str.strip() == paz_scelto]
             
             if not storico_paz.empty and not storico_val.empty:
                 sesso_paz = storico_paz.iloc[0, 5]
                 riga_ultima_val = storico_val.iloc[-1]
-                
-                esiti = esegui_screening_geriatrici(riga_ultima_val, sesso_paz)
+esiti = esegui_screening_geriatrici(riga_ultima_val, sesso_paz)
                 
                 st.markdown("#### Stato delle Sindromi Geriatriche Intercettate")
                 col_e1, col_e2, col_e3 = st.columns(3)
-                with col_e1: st.error(f"**Sarcopenia (EWGSOP2):** \n\n {esiti['sarcopenia']}")
-                with col_e2: st.warning(f"**Fenotipo Fragilità (Frailty):** \n\n {esiti['frailty']}")
-                with col_e3: st.info(f"**Rischio Cadute:** \n\n {esiti['cadute']}")
+                with col_e1: st.error(f"Sarcopenia (EWGSOP2): \n\n {esiti['sarcopenia']}")
+                with col_e2: st.warning(f"Fenotipo Fragilità (Frailty): \n\n {esiti['frailty']}")
+                with col_e3: st.info(f"Rischio Cadute: \n\n {esiti['cadute']}")
                 
                 st.markdown("---")
                 st.markdown("#### 📚 Suggerimenti per la Decisione Clinica (Evidence-Based Medicine)")
                 sppb_punteggio = sum([int(riga_ultima_val.iloc[13]) if pd.notna(riga_ultima_val.iloc[13]) else 0, int(riga_ultima_val.iloc[14]) if pd.notna(riga_ultima_val.iloc[14]) else 0, int(riga_ultima_val.iloc[15]) if pd.notna(riga_ultima_val.iloc[15]) else 0])
                 
                 if sppb_punteggio < 7:
-                    st.markdown("> **⚠️ LIMITAZIONE FUNZIONALE GRAVE (SPPB < 7):** Le linee guida raccomandano l'impostazione immediata di un programma multicomponente focalizzato sulla sicurezza. Priorità assoluta ad esercizi di stabilità postulare e controllo dell'equilibrio in ambiente protetto, affiancati da rinforzo progressivo degli estensori di ginocchio sub-massimale.")
+                    st.markdown("> ⚠️ LIMITAZIONE FUNZIONALE GRAVE (SPPB < 7): Le linee guida raccomandano l'impostazione immediata di un programma multicomponente focalizzato sulla sicurezza. Priorità assoluta ad esercizi di stabilità postulare e controllo dell'equilibrio in ambiente protetto, affiancati da rinforzo progressivo degli estensori di ginocchio sub-massimale.")
                 elif 7 <= sppb_punteggio <= 9:
-                    st.markdown("> **💡 LIMITAZIONE MODERATA (SPPB 7-9):** Indicazione clinica per allenamento di forza progressivo a medio-alta intensità (60-70% 1RM o RPE 7/10 sulla scala Borg). Integrare percorsi di cammino a velocità variabile ed ostacoli per stimolare la riserva motoria.")
+                    st.markdown("> 💡 LIMITAZIONE MODERATA (SPPB 7-9): Indicazione clinica per allenamento di forza progressivo a medio-alta intensità (60-70% 1RM o RPE 7/10 sulla scala Borg). Integrare percorsi di cammino a velocità variabile ed ostacoli per stimolare la riserva motoria.")
                 else:
-                    st.markdown("> **✅ BUONA CAPACITÀ FUNZIONALE (SPPB >= 10):** Focus sul mantenimento e sulla prevenzione primaria. È possibile inserire esercizi di potenza ad alta velocità esecutiva (Power Training) e compiti complessi a doppio compito (Dual-Task) per ottimizzare la resilienza neuro-motoria.")
+                    st.markdown("> ✅ BUONA CAPACITÀ FUNZIONALE (SPPB >= 10): Focus sul mantenimento e sulla prevenzione primaria. È possibile inserire esercizi di potenza ad alta velocità esecutiva (Power Training) e compiti complessi a doppio compito (Dual-Task) per ottimizzare la resilienza neuro-motoria.")
             else:
                 st.info("Necessari sia i dati anagrafici che i test funzionali per generare gli alert.")
 
@@ -656,7 +811,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 try:
                     colonna_fase = df_ricerca_long.columns[25]
                     # Rimuove duplicati per evitare errori nel formato WIDE
-                    df_ricerca_long_pulito = df_ricerca_long.drop_duplicates(subset=["ID_Paziente_Anonimo", colonna_fase], keep="last")
+df_ricerca_long_pulito = df_ricerca_long.drop_duplicates(subset=["ID_Paziente_Anonimo", colonna_fase], keep="last")
                     
                     df_wide = df_ricerca_long_pulito.pivot(index="ID_Paziente_Anonimo", columns=colonna_fase)
                     df_wide.columns = [f"{col[0]}_{col[1]}" for col in df_wide.columns]
@@ -667,7 +822,6 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     st.dataframe(df_wide.head())
                 except Exception as e:
                     st.error(f"Errore nella strutturazione del formato WIDE: {e}")
-
 # ==============================================================================
 # INTERFACCIA 3: AREA PERSONALE DIGITALE DEL PAZIENTE
 # ==============================================================================
