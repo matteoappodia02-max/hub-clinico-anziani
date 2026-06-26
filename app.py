@@ -32,6 +32,131 @@ def leggi_dati_valutazioni():
     # Rimuove righe completamente vuote importate dal foglio di calcolo
     return df.dropna(how="all").reset_index(drop=True)
 
+# ==========================================
+# 1. ALGORITMO DI GENERAZIONE PROGRESSIONE
+# ==========================================
+def genera_progressione_senior(dati_paziente, test_funzionali):
+    """
+    Algoritmo per la generazione di progressioni di allenamento contro resistenza
+    per soggetti in età geriatrica, basato sul testo "Science and Practice of Strength Training".
+    """
+    # ESTRAZIONE DATI
+    patologie = dati_paziente.get('patologie', [])
+    rischio_caduta = dati_paziente.get('rischio_caduta', 'basso') # basso, medio, alto
+    fragilita = dati_paziente.get('fragilita_percepita', 1) # scala 1-10
+    distress = dati_paziente.get('distress_emotivo', 1) # scala 1-10
+    esperienza = dati_paziente.get('esperienza_allenamento', 'novizio') # novizio, intermedio, avanzato
+    
+    # INIZIALIZZAZIONE DEL PIANO E REGOLE DI SICUREZZA
+    piano_allenamento = {
+        "fase_allenamento": "",
+        "intensita_forza": "",
+        "volume_forza": "",
+        "allenamento_potenza_velocita": False,
+        "parametri_potenza": {},
+        "recupero_tra_sedute": "48-72 ore",
+        "note_sicurezza": [],
+        "focus_fisioterapista": []
+    }
+
+    # GESTIONE PATOLOGIE (Vincoli medici e biomeccanici)
+    if "ipertensione" in patologie or "cardiopatia" in patologie:
+        piano_allenamento["note_sicurezza"].append("Assolutamente evitare la manovra di Valsalva per non aumentare la pressione intratoracica e arteriosa.")
+        piano_allenamento["note_sicurezza"].append("Mantenere ripetizioni > 8 evitando sforzi massimali a cedimento (1-3 RM).")
+    
+    if "osteoporosi" in patologie:
+        piano_allenamento["note_sicurezza"].append("Includere esercizi multi-articolari per lo stimolo assiale (es. step-up, pressa), evitando flessioni spinali sotto carico.")
+    
+    if "artrosi" in patologie or "dolore_articolare" in patologie:
+        piano_allenamento["note_sicurezza"].append("Selezionare range di movimento (ROM) senza dolore. Evitare la decelerazione improvvisa del carico.")
+
+    # GESTIONE FATICABILITA' E DISTRESS
+    if fragilita > 7 or distress > 7:
+        piano_allenamento["fase_allenamento"] = "Condizionamento di base / Adattamento Anatomico"
+        piano_allenamento["note_sicurezza"].append("Livelli di distress e fragilità elevati: ridurre il volume totale del 20-30% per prevenire l'overreaching non funzionale.")
+        esperienza = "novizio" # Declassamento protettivo
+
+    # ASSEGNAZIONE PROGRESSIONE DI CARICO (Linee guida NSCA per progressione)
+    if esperienza == "novizio":
+        piano_allenamento["intensita_forza"] = "50-70% 1RM stimato (o 10-15 RM)"
+        piano_allenamento["volume_forza"] = "1-2 serie per gruppo muscolare, 10-15 ripetizioni"
+        piano_allenamento["focus_fisioterapista"].append("Focus su apprendimento motorio, coordinazione e controllo posturale.")
+        if not piano_allenamento["fase_allenamento"]:
+            piano_allenamento["fase_allenamento"] = "Adattamento Anatomico"
+        
+    elif esperienza == "intermedio":
+        piano_allenamento["intensita_forza"] = "60-80% 1RM stimato (o 8-12 RM)"
+        piano_allenamento["volume_forza"] = "2-3 serie per gruppo muscolare, 8-12 ripetizioni"
+        piano_allenamento["focus_fisioterapista"].append("Iniziare a implementare il principio del sovraccarico progressivo (aumenti del 5-10%).")
+        if not piano_allenamento["fase_allenamento"]:
+            piano_allenamento["fase_allenamento"] = "Ipertrofia / Forza Generale"
+        
+    elif esperienza == "avanzato":
+        piano_allenamento["intensita_forza"] = "70-85% 1RM stimato (o 6-10 RM)"
+        piano_allenamento["volume_forza"] = "3+ serie per gruppo muscolare, 6-10 ripetizioni"
+        piano_allenamento["focus_fisioterapista"].append("Introdurre variazioni di carico ondulate per prevenire la monotonia e l'accommodation.")
+        if not piano_allenamento["fase_allenamento"]:
+            piano_allenamento["fase_allenamento"] = "Forza Massima Periodizzata"
+
+    # MODULO PREVENZIONE CADUTE (Sviluppo della Potenza)
+    if rischio_caduta in ["medio", "alto"] and fragilita < 8:
+        piano_allenamento["allenamento_potenza_velocita"] = True
+        piano_allenamento["focus_fisioterapista"].append("Importanza critica della Rate of Force Development (RFD). Richiedere massima intenzione di accelerazione nella fase concentrica.")
+        
+        piano_allenamento["parametri_potenza"] = {
+            "intensita": "30-60% 1RM (carichi leggeri)",
+            "volume": "1-3 serie, 3-6 ripetizioni (non arrivare mai a cedimento)",
+            "esecuzione": "Fase eccentrica controllata, fase concentrica eseguita alla massima velocità possibile",
+            "recupero_tra_serie": "2-3 minuti per rigenerazione ATP-CP"
+        }
+
+    # PERIODIZZAZIONE E FEEDBACK SUI TEST
+    deficit_forza_lower = test_funzionali.get("deficit_lower_body", False)
+    if deficit_forza_lower:
+        piano_allenamento["focus_fisioterapista"].append("Priorità all'ipertrofia e forza degli arti inferiori (squat/pressa/step-up). Gli arti inferiori subiscono un declino di massa più rapido rispetto alla parte superiore.")
+
+    return piano_allenamento
+
+def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
+    st.header("👨‍⚕️ Area Fisioterapista: Analisi e Progressione Clinica")
+    
+    lista_pazienti = df_pazienti['ID Paziente'].dropna().unique()
+    paziente_selezionato = st.selectbox("Seleziona ID Paziente da analizzare", lista_pazienti)
+    
+    if paziente_selezionato:
+        # Estrazione dati dell'ultimo record del paziente
+        storico_paz = df_pazienti[df_pazienti['ID Paziente'] == paziente_selezionato]
+        ultimo_record = storico_paz.iloc[-1]
+        
+        # Mappatura Patologie
+        patologie_raw = str(ultimo_record.get("Patologie Sistemiche", "")) + " " + str(ultimo_record.get("Condizioni Meccaniche", ""))
+        patologie_attive = [p for p in ["ipertensione", "cardiopatia", "osteoporosi", "artrosi"] if p in patologie_raw.lower()]
+        
+        # Estrazione dati numerici
+        fragilita_max = max(pd.to_numeric(ultimo_record.get("V12_Paura_Cadere", 0), errors='coerce'), 
+                           pd.to_numeric(ultimo_record.get("V13_Instabilita_Gambe", 0), errors='coerce'))
+        
+        dati_algoritmo = {
+            "patologie": patologie_attive,
+            "rischio_caduta": "alto" if fragilita_max >= 7 else ("medio" if fragilita_max >= 4 else "basso"),
+            "fragilita_percepita": fragilita_max,
+            "distress_emotivo": pd.to_numeric(ultimo_record.get("Dolore NRS", 0), errors='coerce'),
+            "esperienza_allenamento": "novizio"
+        }
+        
+        # Esecuzione Algoritmo
+        risultato = genera_progressione_senior(dati_algoritmo, {"deficit_lower_body": False})
+        
+        # Visualizzazione UI
+        col1, col2 = st.columns(2)
+        with col1:
+            st.info(f"**Intensità:** {risultato['intensita_forza']}")
+        with col2:
+            st.warning(f"**Fase:** {risultato['fase_allenamento']}")
+            
+        if risultato["note_sicurezza"]:
+            st.error("⚠️ **Note Sicurezza:** " + ", ".join(risultato["note_sicurezza"]))
+
 # ==============================================================================
 # COSTANTI SCIENTIFICHE E METRICHE DI RILEVANZA CLINICA (MDC)
 # ==============================================================================
@@ -218,6 +343,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
     st.title("👨‍⚕️ Dashboard Clinica Avanzata & Data Management")
     
     sub_menu = st.radio("Seleziona Ambito Operativo:", [
+        "🦾 Progressione Senior (NSCA)",
         "📝 Registrazione Nuovi Test", 
         "📈 Analisi Longitudinale & Grafici", 
         "🧠 Analisi Multidimensionale (BPS)", 
@@ -228,26 +354,43 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
 
     df_paziente = leggi_dati_paziente()
     df_valutazioni = leggi_dati_valutazioni()
-    
-    # Pulizia preventiva per ID Paziente validi (evita righe fantasma)
-    lista_pazienti = df_paziente.dropna(subset=[df_paziente.columns[2]]).iloc[:, 2].astype(str).str.strip().unique().tolist() if not df_paziente.empty else []
 
-    if not lista_pazienti:
-        st.warning("Nessun record presente nel database dei pazienti.")
+    # Pulizia preventiva per ID Paziente (più sicura usando il nome colonna)
+    if not df_paziente.empty and "ID Paziente" in df_paziente.columns:
+        # Pulisce, rimuove i vuoti e ottiene i valori unici
+        lista_pazienti = df_paziente["ID Paziente"].dropna().astype(str).str.strip().unique().tolist()
     else:
-        # ----------------------------------------------------------------------
-        # SUB-AMBITO 1: REGISTRAZIONE NUOVI TEST CLINICI
-        # ----------------------------------------------------------------------
-        if sub_menu == "📝 Registrazione Nuovi Test":
-            st.subheader("Inserimento Valutazione Funzionale Obiettiva")
-            paz_scelto = st.selectbox("Seleziona ID Paziente target:", lista_pazienti)
+        lista_pazienti = []
+
+    # ==============================================================================
+    # GESTIONE DELLE SOTTO-PAGINE (STRUTTURA PIATTA)
+    # ==============================================================================
+
+    # --- SOTTO-PAGINA 1: ALGORITMO DI PROGRESSIONE ---
+    if sub_menu == "🦾 Progressione Senior (NSCA)":
+        if not df_paziente.empty:
+            renderizza_sezione_fisioterapista(df_paziente, df_valutazioni)
+        else:
+            st.warning("Dati non disponibili. Verifica la connessione al foglio Google.")
+
+    # --- SOTTO-PAGINA 2: REGISTRAZIONE NUOVI TEST CLINICI ---
+    elif sub_menu == "📝 Registrazione Nuovi Test":
+        st.subheader("Inserimento Valutazione Funzionale Obiettiva")
+        
+        if non lista_pazienti:
+            st.warning("Nessun paziente registrato.")
+        else:
+            paz_scelto = st.selectbox("Seleziona ID Paziente target:", lista_pazienti, key="sb_registrazione")
             
             fc_max_tanaka = None
-            storico_paz = df_paziente[df_paziente.iloc[:, 2].astype(str).str.strip() == paz_scelto]
+            storico_paz = df_paziente[df_paziente["ID Paziente"].astype(str).str.strip() == paz_scelto]
             if not storico_paz.empty:
-                sesso_paz = storico_paz.iloc[0, 5]
-                eta_paz = int(storico_paz.iloc[0, 4])
-                fc_max_tanaka = round(208 - (0.7 * eta_paz), 1)
+                try:
+                    sesso_paz = storico_paz.iloc[0, 5]
+                    eta_paz = int(storico_paz.iloc[0, 4])
+                    fc_max_tanaka = round(208 - (0.7 * eta_paz), 1)
+                except:
+                    st.warning("Impossibile calcolare FC Max: verifica data nascita nell'anagrafica.")
 
             with st.form("form_fiso_valutazione"):
                 fase_test = st.selectbox("Fase temporale della misurazione:", OPZIONI_FASE)
@@ -306,14 +449,15 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 except Exception as e:
                     st.error(f"Errore nel salvataggio: {e}")
 
-        # ----------------------------------------------------------------------
-        # SUB-AMBITO 2: ANALISI LONGITUDINALE CON INDICATORI MDC & PLOTLY
-        # ----------------------------------------------------------------------
-        elif sub_menu == "📈 Analisi Longitudinale & Grafici":
-            st.subheader("Evoluzione Temporale e Verification della Significatività Clinica (MDC)")
-            paz_scelto = st.selectbox("Seleziona Patient da esaminare:", lista_pazienti)
+    # --- SOTTO-PAGINA 3: ANALISI LONGITUDINALE ---
+    elif sub_menu == "📈 Analisi Longitudinale & Grafici":
+        st.subheader("Evoluzione Temporale e Verifica della Significatività Clinica (MDC)")
+        
+        if not lista_pazienti:
+            st.warning("Nessun paziente registrato.")
+        else:
+            paz_scelto = st.selectbox("Seleziona Paziente da esaminare:", lista_pazienti, key="sb_longitudinale")
             
-            # Filtro rigido anti-vuoti
             df_val_clean = df_valutazioni.dropna(subset=[df_valutazioni.columns[10], df_valutazioni.columns[25]])
             storico_val = df_val_clean[df_val_clean.iloc[:, 10].astype(str).str.strip() == paz_scelto].copy()
             
@@ -385,26 +529,24 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
             else:
                 st.info("Dati insufficienti per generare analisi longitudinali per questo paziente.")
 
-        # ----------------------------------------------------------------------
-        # SUB-AMBITO 3: RAPPRESENTAZIONE GRAFICA MODELLO BIOPSICOSOCIALE (RADAR)
-        # ----------------------------------------------------------------------
-        elif sub_menu == "🧠 Analisi Multidimensionale (BPS)":
-            st.subheader("Profilo Psicocomportamentale e Vissuto del Paziente")
-            paz_scelto = st.selectbox("Seleziona ID Paziente:", lista_pazienti)
+    # --- SOTTO-PAGINA 4: BPS ---
+    elif sub_menu == "🧠 Analisi Multidimensionale (BPS)":
+        st.subheader("Profilo Psicocomportamentale e Vissuto del Paziente")
+        
+        if not lista_pazienti:
+            st.warning("Nessun paziente registrato.")
+        else:
+            paz_scelto = st.selectbox("Seleziona ID Paziente:", lista_pazienti, key="sb_bps")
             
-            storico_paz = df_paziente[df_paziente.iloc[:, 2].astype(str).str.strip() == paz_scelto].copy()
+            storico_paz = df_paziente[df_paziente["ID Paziente"].astype(str).str.strip() == paz_scelto].copy()
             if not storico_paz.empty:
-                # SOLUZIONE IMPRECISIONE 2: .str.strip() rimuove spazi fantasma e .unique() trova tutte le fasi reali
                 fasi_disponibili = storico_paz.iloc[:, 31].dropna().astype(str).str.strip().unique().tolist()
-                
-                # Ordina l'elenco dei controlli nel menu a tendina secondo le opzioni ufficiali dello studio
                 fasi_disponibili = sorted(fasi_disponibili, key=lambda x: next((i for i, opt in enumerate(OPZIONI_FASE) if x in opt), 99))
                 
                 if not fasi_disponibili:
                     st.warning("Nessuna fase di screening valida trovata per questo paziente.")
                 else:
-                    fase_scelta = st.selectbox("Seleziona fase di screening da visualizzare:", fasi_disponibili)
-                    
+                    fase_scelta = st.selectbox("Seleziona fase di screening da visualizzare:", fasi_disponibili, key="sb_fase_bps")
                     sub_df = storico_paz[storico_paz.iloc[:, 31].astype(str).str.strip() == fase_scelta]
                     
                     if sub_df.empty:
@@ -433,7 +575,6 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         )
                         st.plotly_chart(fig, use_container_width=True)
                         
-                        # SOLUZIONE IMPRECISIONE 3: Tabella dei punteggi e logica di ripiego sempre visibile
                         st.markdown("##### 📊 Punteggi Analitici delle Dimensioni (Scala 0-10):")
                         c_b1, c_b2, c_b3, c_b4 = st.columns(4)
                         with c_b1: st.metric("Kinesiofobia", f"{dimensioni['Kinesiofobia & Paura']}/10")
@@ -453,14 +594,16 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         if not mostrato_alert:
                             st.success("✅ **Profilo Biopsicosociale Bilanciato:** I punteggi attuali indicano l'assenza di barriere psicocomportamentali critiche o livelli di allarme. Il paziente mostra un'adeguata predisposizione emotiva al movimento. Continuare con la pianificazione riabilitativa standard basata sulle necessità fisico-funzionali.")
 
-        # ----------------------------------------------------------------------
-        # SUB-AMBITO 4: ALGORITMI DI SCREENING AUTOMATIZZATI & CDS
-        # ----------------------------------------------------------------------
-        elif sub_menu == "🧫 Clinical Decision Support & Screening":
-            st.subheader("Sistemi di Supporto Decisionale Clinico basati su Linee Guida")
-            paz_scelto = st.selectbox("Seleziona Paziente:", lista_pazienti)
+    # --- SOTTO-PAGINA 5: CDS ---
+    elif sub_menu == "🧫 Clinical Decision Support & Screening":
+        st.subheader("Sistemi di Supporto Decisionale Clinico basati su Linee Guida")
+        
+        if not lista_pazienti:
+            st.warning("Nessun paziente registrato.")
+        else:
+            paz_scelto = st.selectbox("Seleziona Paziente:", lista_pazienti, key="sb_cds")
             
-            storico_paz = df_paziente[df_paziente.iloc[:, 2].astype(str).str.strip() == paz_scelto]
+            storico_paz = df_paziente[df_paziente["ID Paziente"].astype(str).str.strip() == paz_scelto]
             df_val_clean = df_valutazioni.dropna(subset=[df_valutazioni.columns[10]])
             storico_val = df_val_clean[df_val_clean.iloc[:, 10].astype(str).str.strip() == paz_scelto]
             
@@ -486,39 +629,44 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     st.markdown("> **💡 LIMITAZIONE MODERATA (SPPB 7-9):** Indicazione clinica per allenamento di forza progressivo a medio-alta intensità (60-70% 1RM o RPE 7/10 sulla scala Borg). Integrare percorsi di cammino a velocità variabile ed ostacoli per stimolare la riserva motoria.")
                 else:
                     st.markdown("> **✅ BUONA CAPACITÀ FUNZIONALE (SPPB >= 10):** Focus sul mantenimento e sulla prevenzione primaria. È possibile inserire esercizi di potenza ad alta velocità esecutiva (Power Training) e compiti complessi a doppio compito (Dual-Task) per ottimizzare la resilienza neuro-motoria.")
+            else:
+                st.info("Necessari sia i dati anagrafici che i test funzionali per generare gli alert.")
 
-        # ----------------------------------------------------------------------
-        # SUB-AMBITO 5: ESPORTAZIONE DATASET ANONIMIZZATO PER SOFTWARE STATISTICI
-        # ----------------------------------------------------------------------
-        elif sub_menu == "💾 Export & Data Pipeline per la Ricerca":
-            st.subheader("Estrazione e Anonimizzazione Dataset (Conformità GDPR)")
-            st.write("Configura il formato del file di esportazione pronto per l'importazione in R, Python, SPSS o Jamovi.")
+    # --- SOTTO-PAGINA 6: EXPORT ---
+    elif sub_menu == "💾 Export & Data Pipeline per la Ricerca":
+        st.subheader("Estrazione e Anonimizzazione Dataset (Conformità GDPR)")
+        st.write("Configura il formato del file di esportazione pronto per l'importazione in R, Python, SPSS o Jamovi.")
+        
+        formato_export = st.radio("Seleziona formato strutturale:", ["Formato LONG (Una riga per ogni singola sessione)", "Formato WIDE (Una riga per paziente con follow-up affiancati)"])
+        
+        if st.button("Genera Pipeline Dati Anonimizzati"):
+            df_paz_clean = df_paziente.copy()
+            df_val_clean = df_valutazioni.copy()
             
-            formato_export = st.radio("Seleziona formato strutturale:", ["Formato LONG (Una riga per ogni singola sessione)", "Formato WIDE (Una riga per paziente con follow-up affiancati)"])
+            if "Note" in df_paz_clean.columns: df_paz_clean = df_paz_clean.drop(columns=["Note"])
             
-            if st.button("Genera Pipeline Dati Anonimizzati"):
-                df_paz_clean = df_paziente.copy()
-                df_val_clean = df_valutazioni.copy()
-                
-                if "Note" in df_paz_clean.columns: df_paz_clean = df_paz_clean.drop(columns=["Note"])
-                
-                df_ricerca_long = pd.merge(df_val_clean, df_paz_clean.iloc[:, [2, 4, 5, 6, 7, 8]], left_on=df_val_clean.columns[10], right_on=df_paz_clean.columns[2], how="inner")
-                df_ricerca_long.rename(columns={df_ricerca_long.columns[10]: "ID_Paziente_Anonimo"}, inplace=True)
-                
-                if formato_export == "Formato LONG (Una riga per ogni singola sessione)":
-                    csv_data = df_ricerca_long.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Scarica Dataset LONG .CSV", data=csv_data, file_name="dataset_ricerca_geriatrica_LONG.csv", mime="text/csv")
-                    st.dataframe(df_ricerca_long.head())
-                else:
-                    try:
-                        df_wide = df_ricerca_long.pivot(index="ID_Paziente_Anonimo", columns=df_ricerca_long.columns[25])
-                        df_wide.columns = [f"{col[0]}_{col[1]}" for col in df_wide.columns]
-                        df_wide.reset_index(inplace=True)
-                        csv_data_wide = df_wide.to_csv(index=False).encode('utf-8')
-                        st.download_button("📥 Scarica Dataset WIDE .CSV", data=csv_data_wide, file_name="dataset_ricerca_geriatrica_WIDE.csv", mime="text/csv")
-                        st.dataframe(df_wide.head())
-                    except Exception as e:
-                        st.error(f"Errore nella strutturazione del formato WIDE (Verifica che non ci siano duplicati della stessa fase per lo stesso paziente): {e}")
+            df_ricerca_long = pd.merge(df_val_clean, df_paz_clean.iloc[:, [2, 4, 5, 6, 7, 8]], left_on=df_val_clean.columns[10], right_on=df_paz_clean.columns[2], how="inner")
+            df_ricerca_long.rename(columns={df_ricerca_long.columns[10]: "ID_Paziente_Anonimo"}, inplace=True)
+            
+            if formato_export == "Formato LONG (Una riga per ogni singola sessione)":
+                csv_data = df_ricerca_long.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Scarica Dataset LONG .CSV", data=csv_data, file_name="dataset_ricerca_geriatrica_LONG.csv", mime="text/csv")
+                st.dataframe(df_ricerca_long.head())
+            else:
+                try:
+                    colonna_fase = df_ricerca_long.columns[25]
+                    # Rimuove duplicati per evitare errori nel formato WIDE
+                    df_ricerca_long_pulito = df_ricerca_long.drop_duplicates(subset=["ID_Paziente_Anonimo", colonna_fase], keep="last")
+                    
+                    df_wide = df_ricerca_long_pulito.pivot(index="ID_Paziente_Anonimo", columns=colonna_fase)
+                    df_wide.columns = [f"{col[0]}_{col[1]}" for col in df_wide.columns]
+                    df_wide.reset_index(inplace=True)
+                    
+                    csv_data_wide = df_wide.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Scarica Dataset WIDE .CSV", data=csv_data_wide, file_name="dataset_ricerca_geriatrica_WIDE.csv", mime="text/csv")
+                    st.dataframe(df_wide.head())
+                except Exception as e:
+                    st.error(f"Errore nella strutturazione del formato WIDE: {e}")
 
 # ==============================================================================
 # INTERFACCIA 3: AREA PERSONALE DIGITALE DEL PAZIENTE
