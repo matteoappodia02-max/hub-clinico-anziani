@@ -377,7 +377,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
     elif sub_menu == "📝 Registrazione Nuovi Test":
         st.subheader("Inserimento Valutazione Funzionale Obiettiva")
         
-        if non lista_pazienti:
+        if not lista_pazienti:
             st.warning("Nessun paziente registrato.")
         else:
             paz_scelto = st.selectbox("Seleziona ID Paziente target:", lista_pazienti, key="sb_registrazione")
@@ -484,7 +484,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 tug_att = float(val_attuale.iloc[11]) if pd.notna(val_attuale.iloc[11]) else 0
                 delta_tug = round(tug_att - tug_base, 2)
                 with c_m2:
-                    stato_tug = "✅  Significativo" if delta_tug <= MDC_SOGLIE["TUG"] else "❌ Sotto soglia MDC"
+                    stato_tug = "✅ Significativo" if delta_tug <= MDC_SOGLIE["TUG"] else "❌ Sotto soglia MDC"
                     st.metric(label="Delta TUG Test (Target: -2.1s)", value=f"{delta_tug} s", delta=f"{stato_tug}", delta_color="inverse")
                     
                 sts_base = float(val_baseline.iloc[12]) if pd.notna(val_baseline.iloc[12]) else 0
@@ -624,7 +624,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 sppb_punteggio = sum([int(riga_ultima_val.iloc[13]) if pd.notna(riga_ultima_val.iloc[13]) else 0, int(riga_ultima_val.iloc[14]) if pd.notna(riga_ultima_val.iloc[14]) else 0, int(riga_ultima_val.iloc[15]) if pd.notna(riga_ultima_val.iloc[15]) else 0])
                 
                 if sppb_punteggio < 7:
-                    st.markdown("> **⚠️ LIMITAZIONE FUNZIONALE GRAVE (SPPB < 7):** Le linee guida raccomandano l'impostazione immediata di un programma multicomponente focalizzato sulla sicurezza. Priorità assoluta ad esercizi di stabilità posturale e controllo dell'equilibrio in ambiente protetto, affiancati da rinforzo progressivo degli estensori di ginocchio sub-massimale.")
+                    st.markdown("> **⚠️ LIMITAZIONE FUNZIONALE GRAVE (SPPB < 7):** Le linee guida raccomandano l'impostazione immediata di un programma multicomponente focalizzato sulla sicurezza. Priorità assoluta ad esercizi di stabilità postulare e controllo dell'equilibrio in ambiente protetto, affiancati da rinforzo progressivo degli estensori di ginocchio sub-massimale.")
                 elif 7 <= sppb_punteggio <= 9:
                     st.markdown("> **💡 LIMITAZIONE MODERATA (SPPB 7-9):** Indicazione clinica per allenamento di forza progressivo a medio-alta intensità (60-70% 1RM o RPE 7/10 sulla scala Borg). Integrare percorsi di cammino a velocità variabile ed ostacoli per stimolare la riserva motoria.")
                 else:
