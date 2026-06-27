@@ -5,6 +5,11 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
+import base64
+try:
+    from fpdf import FPDF
+except ImportError:
+    pass # Gestito nell'interfaccia se manca la libreria
 
 # Configurazione della pagina Streamlit
 st.set_page_config(page_title="Hub Clinico & Ricerca - Geriatria", layout="wide")
@@ -58,7 +63,7 @@ def genera_progressione_senior(dati_paziente, test_funzionali):
     if "ipertensione" in patologie or "cardiopatia" in patologie:
         piano_allenamento["note_sicurezza"].append("Evitare manovra di Valsalva. Mantenere ripetizioni > 8, niente sforzi massimali.")
     if "osteoporosi" in patologie:
-        piano_allenamento["note_sicurezza"].append("Includere esercizi multi-articolari per stimolo assiale. Evitare flessioni spinali sotto carico.")
+        piano_allenamento["note_sicurezza"].append("Includere esercizi multi-articolari per lo stimolo assiale.")
     if "artrosi" in patologie or "dolore_articolare" in patologie:
         piano_allenamento["note_sicurezza"].append("Selezionare ROM senza dolore. Evitare decelerazioni improvvise.")
 
@@ -213,7 +218,7 @@ def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
                     st.write(f"- Esecuzione: {pp['esecuzione']} | Recupero: {pp['recupero_tra_serie']}")
 
 # ==============================================================================
-# FUNZIONI DI SUPPORTO CLINICO
+# FUNZIONI DI SUPPORTO CLINICO E PDF
 # ==============================================================================
 OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
 MDC_SOGLIE = {"SPPB": 1.0, "TUG": -2.1, "STS_5X": -2.3, "HANDGRIP": 5.0}
@@ -277,6 +282,49 @@ def esegui_screening_geriatrici(riga_valutazione, sesso_paziente):
     except: pass
     return {"sarcopenia": alert_sarcopenia, "frailty": alert_frailty, "cadute": alert_cadute}
 
+def genera_pdf_report(paz_id, df_paz, df_val):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, f"Report Clinico Riabilitativo - ID Paziente: {paz_id}", ln=True, align='C')
+    pdf.ln(5)
+    
+    if not df_paz.empty:
+        paz_record = df_paz.iloc[-1]
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 8, "1. Dati Anagrafici e Clinici:", ln=True)
+        pdf.set_font("Arial", '', 11)
+        pdf.cell(0, 7, f"Sesso: {paz_record.iloc[5]} | Eta': {paz_record.iloc[4]}", ln=True)
+        pdf.cell(0, 7, f"Patologie Sistemiche: {paz_record.iloc[8]}", ln=True)
+        pdf.cell(0, 7, f"Limitazioni Meccaniche: {paz_record.iloc[7]}", ln=True)
+        pdf.ln(5)
+        
+    if not df_val.empty:
+        val_record = df_val.iloc[-1]
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 8, "2. Ultima Valutazione Funzionale Obiettiva:", ln=True)
+        pdf.set_font("Arial", '', 11)
+        pdf.cell(0, 7, f"Data Valutazione: {val_record.iloc[0]}", ln=True)
+        pdf.cell(0, 7, f"TUG (Agilita'): {val_record.iloc[11]} s", ln=True)
+        pdf.cell(0, 7, f"5xSTS (Forza Sedia): {val_record.iloc[12]} s", ln=True)
+        pdf.cell(0, 7, f"Forza Quadricipite (DX/SN): {val_record.iloc[16]} / {val_record.iloc[17]} Kg", ln=True)
+        pdf.cell(0, 7, f"Handgrip (DX/SN): {val_record.iloc[22]} / {val_record.iloc[23]} Kg", ln=True)
+        pdf.ln(5)
+        
+        sesso_paz = df_paz.iloc[-1, 5] if not df_paz.empty else "Donna"
+        esiti = esegui_screening_geriatrici(val_record, sesso_paz)
+        pdf.set_font("Arial", 'B', 12)
+        pdf.cell(0, 8, "3. Screening Sindromi Geriatriche:", ln=True)
+        pdf.set_font("Arial", '', 11)
+        pdf.cell(0, 7, f"Sarcopenia: {esiti['sarcopenia']}", ln=True)
+        pdf.cell(0, 7, f"Fragilita': {esiti['frailty']}", ln=True)
+        pdf.cell(0, 7, f"Rischio Cadute: {esiti['cadute']}", ln=True)
+
+    try:
+        return pdf.output(dest='S').encode('latin-1')
+    except:
+        return bytes(pdf.output(dest='S')) # Gestione per FPDF2 vs FPDF
+
 # ==============================================================================
 # MENU LATERALE
 # ==============================================================================
@@ -288,7 +336,7 @@ modalita_principale = st.sidebar.radio("Area Operativa:", [
 ])
 
 # ==============================================================================
-# AREA 1: SCREENING INIZIALE PAZIENTE (Codice Invariato)
+# AREA 1: SCREENING INIZIALE PAZIENTE
 # ==============================================================================
 if modalita_principale == "📋 Screening Iniziale (Paziente)":
     st.title("👵 Modulo Integrato di Valutazione del Movimento")
@@ -344,7 +392,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
         "🦾 Progressione Senior (NSCA)",
         "📝 Registrazione Nuovi Test", 
         "🧠 Analisi Multidimensionale & Longitudinale", 
-        "💾 Export Dati"
+        "💾 Export Dati & Report PDF"
     ], horizontal=True)
     st.markdown("---")
 
@@ -423,7 +471,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
             df_v_clean = df_val.dropna(subset=[df_val.columns[10], df_val.columns[25]]) if not df_val.empty else pd.DataFrame()
             st_val = df_v_clean[df_v_clean[col_id_v].astype(str).str.strip() == paz_scelto].copy() if not df_v_clean.empty else pd.DataFrame()
 
-            tab_bps, tab_cds, tab_long = st.tabs(["🧠 Radar Biopsicosociale (PACT)", "🧫 Screening Sindromi Geriatriche", "📈 Grafici Forza & Funzione"])
+            tab_bps, tab_cds, tab_long = st.tabs(["🧠 Radar Biopsicosociale (PACT)", "🧫 Screening Sindromi Geriatriche", "📈 Grafici Forza & Funzione (Delta % Baseline)"])
             
             # TAB 1: RADAR BPS
             with tab_bps:
@@ -433,7 +481,6 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     riga_mirata = st_paz[st_paz.iloc[:, 31] == fase_scelta].iloc[0]
                     dim = calcola_dimensioni_biopsicosociali(riga_mirata)
                     
-                    # Costruzione dati per grafico polare chiuso
                     cat = list(dim.keys())
                     val = list(dim.values())
                     cat += cat[:1]
@@ -457,50 +504,84 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     sesso = st_paz.iloc[-1, 5] if len(st_paz.columns) > 5 else "Donna"
                     esiti = esegui_screening_geriatrici(st_val.iloc[-1], sesso)
                     
-                    # Sarcopenia
                     if "Rosso" in esiti["sarcopenia"]: st.error(f"**Sarcopenia:** {esiti['sarcopenia']}")
                     elif "Giallo" in esiti["sarcopenia"]: st.warning(f"**Sarcopenia:** {esiti['sarcopenia']}")
                     else: st.success(f"**Sarcopenia:** {esiti['sarcopenia']}")
                     
-                    # Fragilità
                     if "Rosso" in esiti["frailty"]: st.error(f"**Fragilità (Frailty):** {esiti['frailty']}")
                     elif "Giallo" in esiti["frailty"]: st.warning(f"**Fragilità (Frailty):** {esiti['frailty']}")
                     else: st.success(f"**Fragilità (Frailty):** {esiti['frailty']}")
                     
-                    # Cadute
                     if "Rosso" in esiti["cadute"]: st.error(f"**Rischio Cadute:** {esiti['cadute']}")
                     else: st.success(f"**Rischio Cadute:** {esiti['cadute']}")
                 else:
                     st.info("Necessari test funzionali completi per eseguire lo screening.")
 
-            # TAB 3: GRAFICI LONGITUDINALI
+            # TAB 3: GRAFICI LONGITUDINALI (% SU BASELINE)
             with tab_long:
-                st.markdown("#### Evoluzione Temporale Parametri Fisici")
+                st.markdown("#### Evoluzione Variazione % rispetto alla Baseline (Seduta Iniziale = 0%)")
                 if not st_val.empty and len(st_val) > 0:
                     st_val["Asse_X"] = st_val.apply(formatta_asse_x, axis=1)
                     st_val = st_val.sort_values("Asse_X")
                     
+                    # Calcolo Delta Percentuale rispetto alla riga Baseline (indice 0)
+                    baseline_row = st_val.iloc[0]
+                    st_val_perc = st_val.copy()
+                    
+                    # Indici colonne: Quad DX(16), Quad SN(17), Grip DX(22), Grip SN(23), TUG(11), STS(12)
+                    for col in [11, 12, 16, 17, 22, 23]:
+                        base_val = pd.to_numeric(baseline_row.iloc[col], errors='coerce')
+                        if pd.notna(base_val) and base_val != 0:
+                            st_val_perc.iloc[:, col] = ((pd.to_numeric(st_val.iloc[:, col], errors='coerce') - base_val) / base_val) * 100
+                        else:
+                            st_val_perc.iloc[:, col] = 0.0
+
                     c_f, c_p = st.columns(2)
                     with c_f:
                         fig_f = go.Figure()
-                        fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 16], name="Quad DX", mode='lines+markers'))
-                        fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 17], name="Quad SN", mode='lines+markers'))
-                        fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 22], name="Grip DX", mode='lines+markers', line=dict(dash='dash')))
-                        fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 23], name="Grip SN", mode='lines+markers', line=dict(dash='dash')))
-                        fig_f.update_layout(title="Andamento Forza (Kg)", legend_orientation="h")
+                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 16], name="Quad DX", mode='lines+markers'))
+                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 17], name="Quad SN", mode='lines+markers'))
+                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 22], name="Grip DX", mode='lines+markers', line=dict(dash='dash')))
+                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 23], name="Grip SN", mode='lines+markers', line=dict(dash='dash')))
+                        fig_f.update_layout(title="Variazione Forza (Delta %)", yaxis_title="Miglioramento %", legend_orientation="h")
                         st.plotly_chart(fig_f, use_container_width=True)
                     with c_p:
                         fig_p = go.Figure()
-                        fig_p.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 11], name="TUG (s)", mode='lines+markers'))
-                        fig_p.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 12], name="5xSTS (s)", mode='lines+markers'))
-                        fig_p.update_layout(title="Test Funzionali Cronometrati", legend_orientation="h")
+                        fig_p.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 11], name="TUG (Tempo)", mode='lines+markers'))
+                        fig_p.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 12], name="5xSTS (Tempo)", mode='lines+markers'))
+                        # Asse Y invertito per i tempi: un Delta % negativo (es. -20% di tempo) è positivo e va verso l'alto
+                        fig_p.update_yaxes(autorange="reversed")
+                        fig_p.update_layout(title="Variazione Funzionale (Delta %)", yaxis_title="Riduzione Tempo %", legend_orientation="h")
                         st.plotly_chart(fig_p, use_container_width=True)
                 else: st.info("Dati longitudinali insufficienti.")
 
-    # --- SOTTO-PAGINA 4: EXPORT ---
-    elif sub_menu == "💾 Export Dati":
-        st.download_button("Export Anagrafiche CSV", df_paz.to_csv(index=False), "pazienti.csv", "text/csv")
-        st.download_button("Export Valutazioni CSV", df_val.to_csv(index=False), "valutazioni.csv", "text/csv")
+    # --- SOTTO-PAGINA 4: EXPORT & PDF ---
+    elif sub_menu == "💾 Export Dati & Report PDF":
+        st.subheader("Esportazione Dati e Refertazione")
+        
+        c_csv, c_pdf = st.columns(2)
+        with c_csv:
+            st.markdown("**1. Scarica Database Grezzo (CSV)**")
+            st.download_button("Export Anagrafiche CSV", df_paz.to_csv(index=False), "pazienti.csv", "text/csv")
+            st.download_button("Export Valutazioni CSV", df_val.to_csv(index=False), "valutazioni.csv", "text/csv")
+            
+        with c_pdf:
+            st.markdown("**2. Genera Referto Clinico in PDF**")
+            if not lista_paz:
+                st.warning("Nessun paziente disponibile per il PDF.")
+            else:
+                paz_pdf = st.selectbox("Seleziona Paziente per Report:", lista_paz, key="sb_pdf")
+                if st.button("Genera Report PDF"):
+                    try:
+                        import fpdf
+                        col_id_v = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_val.columns), df_val.columns[10] if len(df_val.columns)>10 else None)
+                        st_paz = df_paz[df_paz[col_id].astype(str).str.strip() == paz_pdf]
+                        st_val = df_val[df_val[col_id_v].astype(str).str.strip() == paz_pdf] if col_id_v and not df_val.empty else pd.DataFrame()
+                        
+                        pdf_bytes = genera_pdf_report(paz_pdf, st_paz, st_val)
+                        st.download_button(label="📥 Scarica PDF", data=pdf_bytes, file_name=f"Report_Clinico_{paz_pdf}.pdf", mime="application/pdf")
+                    except ImportError:
+                        st.error("Libreria FPDF non trovata. Per abilitare l'export PDF aggiungi 'fpdf' al tuo file requirements.txt o lancia 'pip install fpdf'.")
 
 # ==============================================================================
 # AREA 3: PORTALE PAZIENTE
@@ -552,8 +633,11 @@ elif modalita_principale == "🔐 Area Personale (Paziente)":
                     with c_p1:
                         fig_m = go.Figure()
                         fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 11], name="Agilità (TUG)", mode="lines+markers", line=dict(color="orange")))
-                        fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 4], name="Forza Gambe (Sedia)", mode="lines+markers", line=dict(color="green")))
-                        fig_m.update_layout(title="Miglioramento dell'Autonomia", legend_orientation="h")
+                        fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 12], name="Forza Gambe (Sedia)", mode="lines+markers", line=dict(color="green")))
+                        
+                        # INVERSIONE ASSE Y (Più basso è il tempo, più alta è la linea visivamente)
+                        fig_m.update_yaxes(autorange="reversed")
+                        fig_m.update_layout(title="Miglioramento dell'Autonomia (Valori Bassi = Più Agilità)", legend_orientation="h")
                         st.plotly_chart(fig_m, use_container_width=True)
                     with c_p2:
                         fig_f = go.Figure()
