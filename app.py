@@ -5,11 +5,13 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
-import base64
+import tempfile
+import os
+
 try:
     from fpdf import FPDF
 except ImportError:
-    pass # Gestito nell'interfaccia se manca la libreria
+    pass # Gestito a runtime
 
 # Configurazione della pagina Streamlit
 st.set_page_config(page_title="Hub Clinico & Ricerca - Geriatria", layout="wide")
@@ -37,7 +39,7 @@ def leggi_dati_valutazioni():
     return df.dropna(how="all").reset_index(drop=True)
 
 # ==============================================================================
-# 1. ALGORITMO DI GENERAZIONE PROGRESSIONE
+# 1. ALGORITMO DI GENERAZIONE PROGRESSIONE E CARICHI REALI
 # ==============================================================================
 def genera_progressione_senior(dati_paziente, test_funzionali):
     patologie = dati_paziente.get('patologie', [])
@@ -46,192 +48,169 @@ def genera_progressione_senior(dati_paziente, test_funzionali):
     distress = dati_paziente.get('distress_emotivo', 1)
     esperienza = dati_paziente.get('esperienza_allenamento', 'novizio')
     
-    piano_allenamento = {
+    piano = {
         "fase_allenamento": "",
+        "intensita_perc": 0.5, # Valore numerico per calcoli
         "intensita_forza": "",
         "volume_forza": "",
         "allenamento_potenza_velocita": False,
         "parametri_potenza": {},
         "condizionamento_aerobico": {},
         "esercizi_consigliati": {},
+        "scheda_carichi_reali": [],
         "recupero_tra_sedute": "48-72 ore",
         "note_sicurezza": [],
         "focus_fisioterapista": []
     }
 
-    # Vincoli Patologici
     if "ipertensione" in patologie or "cardiopatia" in patologie:
-        piano_allenamento["note_sicurezza"].append("Evitare manovra di Valsalva. Mantenere ripetizioni > 8, niente sforzi massimali.")
+        piano["note_sicurezza"].append("Evitare manovra di Valsalva. Mantenere ripetizioni > 8, niente sforzi massimali.")
     if "osteoporosi" in patologie:
-        piano_allenamento["note_sicurezza"].append("Includere esercizi multi-articolari per lo stimolo assiale.")
+        piano["note_sicurezza"].append("Includere esercizi multi-articolari per lo stimolo assiale.")
     if "artrosi" in patologie or "dolore_articolare" in patologie:
-        piano_allenamento["note_sicurezza"].append("Selezionare ROM senza dolore. Evitare decelerazioni improvvise.")
+        piano["note_sicurezza"].append("Selezionare ROM senza dolore. Evitare decelerazioni improvvise.")
 
     if fragilita > 7 or distress > 7:
-        piano_allenamento["fase_allenamento"] = "Condizionamento di base / Adattamento Anatomico"
-        piano_allenamento["note_sicurezza"].append("Distress elevato: ridurre volume totale del 20-30% (Prevenzione overreaching).")
+        piano["fase_allenamento"] = "Condizionamento di base / Adattamento Anatomico"
+        piano["note_sicurezza"].append("Distress elevato: ridurre volume totale del 20-30% (Prevenzione overreaching).")
         esperienza = "novizio"
 
-    # Prescrizione Forza
     if esperienza == "novizio":
-        piano_allenamento["intensita_forza"] = "50-70% 1RM stimato (10-15 RM)"
-        piano_allenamento["volume_forza"] = "1-2 serie per gruppo, 10-15 ripetizioni"
-        piano_allenamento["focus_fisioterapista"].append("Focus su apprendimento motorio e controllo posturale.")
-        if not piano_allenamento["fase_allenamento"]: piano_allenamento["fase_allenamento"] = "Adattamento Anatomico"
+        piano["intensita_perc"] = 0.5
+        piano["intensita_forza"] = "50-60% 1RM (10-15 RM)"
+        piano["volume_forza"] = "1-2 serie per gruppo, 10-15 ripetizioni"
+        piano["focus_fisioterapista"].append("Focus su apprendimento motorio e controllo posturale.")
+        if not piano["fase_allenamento"]: piano["fase_allenamento"] = "Adattamento Anatomico"
     elif esperienza == "intermedio":
-        piano_allenamento["intensita_forza"] = "60-80% 1RM stimato (8-12 RM)"
-        piano_allenamento["volume_forza"] = "2-3 serie per gruppo, 8-12 ripetizioni"
-        if not piano_allenamento["fase_allenamento"]: piano_allenamento["fase_allenamento"] = "Ipertrofia / Forza Generale"
+        piano["intensita_perc"] = 0.7
+        piano["intensita_forza"] = "60-80% 1RM (8-12 RM)"
+        piano["volume_forza"] = "2-3 serie per gruppo, 8-12 ripetizioni"
+        if not piano["fase_allenamento"]: piano["fase_allenamento"] = "Ipertrofia / Forza Generale"
     elif esperienza == "avanzato":
-        piano_allenamento["intensita_forza"] = "70-85% 1RM stimato (6-10 RM)"
-        piano_allenamento["volume_forza"] = "3+ serie per gruppo, 6-10 ripetizioni"
-        if not piano_allenamento["fase_allenamento"]: piano_allenamento["fase_allenamento"] = "Forza Massima Periodizzata"
+        piano["intensita_perc"] = 0.8
+        piano["intensita_forza"] = "70-85% 1RM (6-10 RM)"
+        piano["volume_forza"] = "3+ serie per gruppo, 6-10 ripetizioni"
+        if not piano["fase_allenamento"]: piano["fase_allenamento"] = "Forza Massima Periodizzata"
 
-    # Sviluppo Potenza
     if rischio_caduta in ["medio", "alto"] and fragilita < 8:
-        piano_allenamento["allenamento_potenza_velocita"] = True
-        piano_allenamento["focus_fisioterapista"].append("Focus critico su Rate of Force Development (RFD). Massima accelerazione concentrica.")
-        piano_allenamento["parametri_potenza"] = {
-            "intensita": "30-60% 1RM (carichi leggeri)",
-            "volume": "1-3 serie, 3-6 ripetizioni",
-            "esecuzione": "Fase eccentrica controllata, concentrica veloce",
-            "recupero_tra_serie": "2-3 minuti"
+        piano["allenamento_potenza_velocita"] = True
+        piano["focus_fisioterapista"].append("Focus critico su Rate of Force Development (RFD). Massima accelerazione concentrica.")
+        piano["parametri_potenza"] = {
+            "intensita": "30-50% 1RM", "volume": "2-3 serie, 4-6 ripetizioni",
+            "esecuzione": "Fase eccentrica controllata, concentrica esplosiva", "recupero": "2-3 minuti"
         }
 
-    # Esercizi a Corpo Libero Consigliati
-    piano_allenamento["esercizi_consigliati"] = {
-        "Arti Inferiori": [
-            "Squat assistito con sedia (Sit-to-stand)", 
-            "Step-up frontale su gradino basso", 
-            "Ponte glutei (Glute bridge) bipodalico a terra", 
-            "Abduzioni anca in stazione eretta (con appoggio)"
-        ],
-        "Arti Superiori & Core": [
-            "Push-up facilitati al muro (Wall push-ups)", 
-            "Rematore isometrico con asciugamano o elastico leggero", 
-            "Plank frontale modificato (appoggio su muro o tavolo)", 
-            "Bird-dog (Quadrupedia) o estensioni alternate da seduto"
-        ]
+    piano["esercizi_consigliati"] = {
+        "Arti Inferiori": ["Squat su sedia (Sit-to-stand)", "Step-up frontale su gradino basso", "Ponte glutei bipodalico", "Abduzioni anca in piedi"],
+        "Arti Superiori & Core": ["Push-up al muro", "Rematore con elastico/manubrio", "Plank su tavolo", "Bird-dog o estensioni incrociate"]
     }
 
-    # Condizionamento Aerobico / Potenza Aerobica
-    piano_allenamento["condizionamento_aerobico"] = {
+    piano["condizionamento_aerobico"] = {
         "frequenza": "3-5 giorni a settimana",
-        "intensita": "Moderata (RPE 4-6 su 10, percezione di lieve affanno ma capacità di parlare)",
-        "volume": "150 minuti cumulativi a settimana (es. 5 blocchi da 30 min, o 10 da 15 min)",
-        "potenza_aerobica": "Se SPPB >= 9: introdurre 1 volta a settimana Interval Training (1 min passo svelto / 2 min passo lento).",
-        "modalita": "Cammino su piano, cyclette orizzontale, o ergometro a braccia (in caso di deficit arti inferiori)."
+        "intensita": "Moderata (RPE 4-6 su 10)",
+        "volume": "150 minuti/settimana (es. blocchi da 15-30 min)",
+        "potenza_aerobica": "Se SPPB >= 9: 1x/settimana Interval Training (1 min sprint / 2 min recupero attivo).",
+        "modalita": "Cammino veloce, cyclette orizzontale."
     }
+
+    # Calcolo Scheda Carichi Reali
+    f_q_dx = test_funzionali.get("quad_dx", 0)
+    f_q_sn = test_funzionali.get("quad_sn", 0)
+    f_h_dx = test_funzionali.get("grip_dx", 0)
+    perc = piano["intensita_perc"]
+    
+    if f_q_dx > 0:
+        carico_le_dx = round(f_q_dx * perc, 1)
+        piano["scheda_carichi_reali"].append({"Distretto": "Estensori Ginocchio DX", "Esercizio Macchina": "Leg Extension DX", "Carico Stimato": f"{carico_le_dx} Kg", "Serie x Rip": piano["volume_forza"]})
+    if f_q_sn > 0:
+        carico_le_sn = round(f_q_sn * perc, 1)
+        piano["scheda_carichi_reali"].append({"Distretto": "Estensori Ginocchio SN", "Esercizio Macchina": "Leg Extension SN", "Carico Stimato": f"{carico_le_sn} Kg", "Serie x Rip": piano["volume_forza"]})
+    if f_h_dx > 0:
+        carico_trazione = round(f_h_dx * perc, 1)
+        piano["scheda_carichi_reali"].append({"Distretto": "Tirata / Grip", "Esercizio Macchina": "Rowing / Lat Machine", "Carico Stimato": f"{carico_trazione} Kg", "Serie x Rip": piano["volume_forza"]})
 
     if test_funzionali.get("deficit_lower_body", False):
-        piano_allenamento["focus_fisioterapista"].append("Priorità all'ipertrofia arti inferiori: subiscono un declino di massa più rapido.")
+        piano["focus_fisioterapista"].append("Priorità all'ipertrofia arti inferiori: subiscono declino più rapido.")
 
-    return piano_allenamento
+    return piano
 
 def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
     st.header("🦾 Progressione Senior (NSCA & Aerobic Power)")
-    st.markdown("Genera un piano d'allenamento di forza e condizionamento aerobico basato sulle prove scientifiche.")
     
     if df_pazienti.empty:
-        st.warning("Nessun dato paziente disponibile al momento.")
+        st.warning("Nessun dato paziente disponibile.")
         return
 
-    colonna_id = next((col for col in ["ID Paziente", "ID_Paziente", "id paziente"] if col in df_pazienti.columns), df_pazienti.columns[2] if len(df_pazienti.columns) > 2 else None)
-    if not colonna_id: return
+    col_id = next((col for col in ["ID Paziente", "ID_Paziente"] if col in df_pazienti.columns), df_pazienti.columns[2] if len(df_pazienti.columns)>2 else None)
+    if not col_id: return
     
-    lista_pazienti = df_pazienti[colonna_id].dropna().astype(str).str.strip().unique().tolist()
-    paz_selezionato = st.selectbox("Seleziona Paziente per prescrizione allenamento:", lista_pazienti, key="sb_nsca_prog")
+    paz_selezionato = st.selectbox("Seleziona Paziente:", df_pazienti[col_id].dropna().astype(str).str.strip().unique().tolist(), key="sb_nsca")
     
     if paz_selezionato:
-        storico_paz = df_pazienti[df_pazienti[colonna_id].astype(str).str.strip() == paz_selezionato]
-        
-        col_id_val = next((col for col in ["ID Paziente", "ID_Paziente", "id paziente"] if col in df_valutazioni.columns), df_valutazioni.columns[10] if len(df_valutazioni.columns) > 10 else None)
+        storico_paz = df_pazienti[df_pazienti[col_id].astype(str).str.strip() == paz_selezionato]
+        col_id_val = next((col for col in ["ID Paziente", "ID_Paziente"] if col in df_valutazioni.columns), df_valutazioni.columns[10] if len(df_valutazioni.columns)>10 else None)
         storico_val = df_valutazioni[df_valutazioni[col_id_val].astype(str).str.strip() == paz_selezionato] if col_id_val and not df_valutazioni.empty else pd.DataFrame()
 
         if not storico_paz.empty:
-            ultimo_record = storico_paz.iloc[-1]
+            ult_paz = storico_paz.iloc[-1]
             
-            # Mappatura Patologie
-            col_pat_sist = next((col for col in storico_paz.columns if "Sistemiche" in col), storico_paz.columns[8] if len(storico_paz.columns) > 8 else None)
-            col_cond_mecc = next((col for col in storico_paz.columns if "Meccaniche" in col), storico_paz.columns[7] if len(storico_paz.columns) > 7 else None)
-            pat_raw = (str(ultimo_record.get(col_pat_sist, "")) + " " + str(ultimo_record.get(col_cond_mecc, ""))).lower()
+            c_pat = next((c for c in storico_paz.columns if "Sistemiche" in c), storico_paz.columns[8] if len(storico_paz.columns)>8 else None)
+            c_mec = next((c for c in storico_paz.columns if "Meccaniche" in c), storico_paz.columns[7] if len(storico_paz.columns)>7 else None)
+            pat_raw = (str(ult_paz.get(c_pat, "")) + " " + str(ult_paz.get(c_mec, ""))).lower()
             pat_attive = [p for p in ["ipertensione", "cardiopatia", "osteoporosi", "artrosi"] if p in pat_raw]
 
-            # Mappatura Fragilità e Distress
-            v12 = pd.to_numeric(ultimo_record.iloc[23] if len(ultimo_record)>23 else 0, errors='coerce')
-            v13 = pd.to_numeric(ultimo_record.iloc[24] if len(ultimo_record)>24 else 0, errors='coerce')
-            v9 = pd.to_numeric(ultimo_record.iloc[20] if len(ultimo_record)>20 else 0, errors='coerce')
-            v10 = pd.to_numeric(ultimo_record.iloc[21] if len(ultimo_record)>21 else 0, errors='coerce')
-            dolore = pd.to_numeric(ultimo_record.iloc[10] if len(ultimo_record)>10 else 0, errors='coerce')
-            
-            frag_max = max(np.nan_to_num(v12), np.nan_to_num(v13))
-            dist_max = max(np.nan_to_num(v9), np.nan_to_num(v10), np.nan_to_num(dolore))
-            rischio_cad = "alto" if frag_max >= 7 else ("medio" if frag_max >= 4 else "basso")
+            frag_max = max(np.nan_to_num(pd.to_numeric(ult_paz.iloc[23] if len(ult_paz)>23 else 0, errors='coerce')), np.nan_to_num(pd.to_numeric(ult_paz.iloc[24] if len(ult_paz)>24 else 0, errors='coerce')))
+            dist_max = max(np.nan_to_num(pd.to_numeric(ult_paz.iloc[20] if len(ult_paz)>20 else 0, errors='coerce')), np.nan_to_num(pd.to_numeric(ult_paz.iloc[10] if len(ult_paz)>10 else 0, errors='coerce')))
+            r_cad = "alto" if frag_max >= 7 else ("medio" if frag_max >= 4 else "basso")
 
-            # Deficit Lower Body
-            deficit_lower = False
+            dati_test = {"deficit_lower_body": False, "quad_dx": 0, "quad_sn": 0, "grip_dx": 0}
             if not storico_val.empty:
-                ult_val = storico_val.iloc[-1]
-                f_dx = pd.to_numeric(ult_val.iloc[16] if len(ult_val)>16 else 0, errors='coerce')
-                f_sn = pd.to_numeric(ult_val.iloc[17] if len(ult_val)>17 else 0, errors='coerce')
-                f_dx, f_sn = np.nan_to_num(f_dx), np.nan_to_num(f_sn)
-                if f_dx > 0 and f_sn > 0 and (max(f_dx, f_sn) < 10 or abs(f_dx - f_sn) > max(f_dx, f_sn)*0.2):
-                    deficit_lower = True
+                uv = storico_val.iloc[-1]
+                q_dx, q_sn = np.nan_to_num(pd.to_numeric(uv.iloc[16], errors='coerce')), np.nan_to_num(pd.to_numeric(uv.iloc[17], errors='coerce'))
+                g_dx = np.nan_to_num(pd.to_numeric(uv.iloc[22], errors='coerce'))
+                dati_test.update({"quad_dx": q_dx, "quad_sn": q_sn, "grip_dx": g_dx})
+                if q_dx > 0 and q_sn > 0 and (max(q_dx, q_sn) < 10 or abs(q_dx - q_sn) > max(q_dx, q_sn)*0.2): dati_test["deficit_lower_body"] = True
 
-            risultato = genera_progressione_senior(
-                {"patologie": pat_attive, "rischio_caduta": rischio_cad, "fragilita_percepita": frag_max, "distress_emotivo": dist_max, "esperienza_allenamento": "novizio"},
-                {"deficit_lower_body": deficit_lower}
-            )
+            ris = genera_progressione_senior({"patologie": pat_attive, "rischio_caduta": r_cad, "fragilita_percepita": frag_max, "distress_emotivo": dist_max, "esperienza_allenamento": "novizio"}, dati_test)
 
             st.markdown("---")
             c1, c2 = st.columns(2)
-            with c1:
-                st.info(f"**Intensità Forza:** {risultato['intensita_forza']}\n\n**Volume Forza:** {risultato['volume_forza']}")
-            with c2:
-                st.warning(f"**Fase Allenamento:** {risultato['fase_allenamento']}\n\n**Recupero:** {risultato['recupero_tra_sedute']}")
+            with c1: st.info(f"**Intensità Forza:** {ris['intensita_forza']}\n\n**Volume:** {ris['volume_forza']}")
+            with c2: st.warning(f"**Fase:** {ris['fase_allenamento']}\n\n**Recupero:** {ris['recupero_tra_sedute']}")
 
-            if risultato["note_sicurezza"]:
-                st.error("**⚠️ Sicurezza:**\n" + "\n".join([f"- {n}" for n in risultato["note_sicurezza"]]))
+            if ris["note_sicurezza"]: st.error("**⚠️ Sicurezza:**\n" + "\n".join([f"- {n}" for n in ris["note_sicurezza"]]))
             
-            # Esercizi Consigliati
+            # Scheda Parametri Reali
+            if ris["scheda_carichi_reali"]:
+                st.subheader("📋 Scheda Progressioni (Calcolo Reale su Baseline/Ultimo Test)")
+                st.table(pd.DataFrame(ris["scheda_carichi_reali"]))
+
             st.subheader("🏋️ Esercizi a Corpo Libero Suggeriti")
             col_es1, col_es2 = st.columns(2)
             with col_es1:
                 st.markdown("**Arti Inferiori:**")
-                for es in risultato["esercizi_consigliati"]["Arti Inferiori"]: st.markdown(f"- {es}")
+                for es in ris["esercizi_consigliati"]["Arti Inferiori"]: st.markdown(f"- {es}")
             with col_es2:
                 st.markdown("**Arti Superiori & Core:**")
-                for es in risultato["esercizi_consigliati"]["Arti Superiori & Core"]: st.markdown(f"- {es}")
+                for es in ris["esercizi_consigliati"]["Arti Superiori & Core"]: st.markdown(f"- {es}")
 
-            # Condizionamento Aerobico
             st.subheader("🫀 Condizionamento Aerobico & Potenza")
-            ca = risultato["condizionamento_aerobico"]
-            st.markdown(f"- **Frequenza e Volume:** {ca['frequenza']}, {ca['volume']}")
-            st.markdown(f"- **Intensità:** {ca['intensita']}")
-            st.markdown(f"- **Modalità consigliate:** {ca['modalita']}")
-            st.markdown(f"- **Potenza Aerobica:** {ca['potenza_aerobica']}")
-
-            if risultato["allenamento_potenza_velocita"]:
-                with st.expander("⚡ Sviluppo Potenza (Prevenzione Cadute)", expanded=True):
-                    pp = risultato["parametri_potenza"]
-                    st.write(f"- Intensità: {pp['intensita']} | Volume: {pp['volume']}")
-                    st.write(f"- Esecuzione: {pp['esecuzione']} | Recupero: {pp['recupero_tra_serie']}")
+            ca = ris["condizionamento_aerobico"]
+            st.markdown(f"- **Volume/Freq:** {ca['frequenza']} | {ca['volume']}\n- **Intensità:** {ca['intensita']}\n- **Potenza Aerobica:** {ca['potenza_aerobica']}")
 
 # ==============================================================================
 # FUNZIONI DI SUPPORTO CLINICO E PDF
 # ==============================================================================
 OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
-MDC_SOGLIE = {"SPPB": 1.0, "TUG": -2.1, "STS_5X": -2.3, "HANDGRIP": 5.0}
 
 def genera_feedback_empatico(kinesiofobia, paura_cadute):
     indice_prudenza = (kinesiofobia + paura_cadute) / 2
     if indice_prudenza < 4:
-        titolo, testo, tipo = "Hai una buona consapevolezza del tuo corpo!", "Continua a mantenerti attivo/a come stai facendo. La tua sicurezza nei movimenti è un ottimo punto di partenza per conservare l'autonomia.", "success"
+        return "Hai una buona consapevolezza del tuo corpo!", "Continua a mantenerti attivo/a come stai facendo. La tua sicurezza nei movimenti è un ottimo punto di partenza per conservare l'autonomia.", "success"
     elif 4 <= indice_prudenza < 7:
-        titolo, testo, tipo = "Alcuni aspetti richiedono attenzione", "Abbiamo notato che talvolta senti un po' di timore nel muoverti liberamente. È normale, ma possiamo lavorarci insieme. Una valutazione completa ci aiuterà a capire come farti sentire più sicuro/a in ogni situazione quotidiana.", "info"
+        return "Alcuni aspetti richiedono attenzione", "Abbiamo notato che talvolta senti un po' di timore nel muoverti liberamente. È normale, ma possiamo lavorarci insieme. Una valutazione ci aiuterà a farti sentire più sicuro/a.", "info"
     else:
-        titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
-    return titolo, testo, tipo
+        return "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo un incontro per definire piccoli passi verso l'autonomia.", "warning"
 
 def estrai_ordine(fase_str):
     fase_str = str(fase_str)
@@ -242,106 +221,104 @@ def estrai_ordine(fase_str):
 
 def formatta_asse_x(riga):
     try:
-        data_pulita = str(riga.iloc[0]).split()[0]
-        fase_completa = str(riga.iloc[25]).strip()
-        ord_num = estrai_ordine(fase_completa)
-        mappa_brev = {"Baseline": "Baseline", "3": "3M", "6": "6M", "9": "9M", "12": "12M"}
-        f_breve = fase_completa
-        for k, b in mappa_brev.items():
-            if k in fase_completa:
-                f_breve = b
-                break
-        return f"{ord_num}. {data_pulita} ({f_breve})"
+        data = str(riga.iloc[0]).split()[0]
+        fase = str(riga.iloc[25]).strip()
+        ord_num = estrai_ordine(fase)
+        mappa = {"Baseline": "Baseline", "3": "3M", "6": "6M", "9": "9M", "12": "12M"}
+        f_brev = next((b for k, b in mappa.items() if k in fase), fase)
+        return f"{ord_num}. {data} ({f_brev})"
     except: return "N/D"
 
-def calcola_dimensioni_biopsicosociali(riga_paziente):
+def calcola_dimensioni_biopsicosociali(riga):
     try:
-        v = riga_paziente.iloc[12:30].astype(float).values
-        kinesiofobia = np.nanmean([v[9], v[10], v[11], v[16]])
-        accettazione = np.nanmean([v[2], v[6], v[7], v[14]])
-        autoefficacia = np.nanmean([v[0], v[1], v[8], v[15]])
-        impatto_dol = np.nanmean([v[12], v[13], v[17]])
+        v = riga.iloc[12:30].astype(float).values
         return {
-            "Kinesiofobia & Paura": round(kinesiofobia, 2),
-            "Accettazione (Approccio PACT)": round(accettazione, 2),
-            "Autoefficacia Motoria": round(autoefficacia, 2),
-            "Percezione Stato Funzionale": round(impatto_dol, 2)
+            "Kinesiofobia": round(np.nanmean([v[9], v[10], v[11], v[16]]), 2),
+            "Accettazione PACT": round(np.nanmean([v[2], v[6], v[7], v[14]]), 2),
+            "Autoefficacia": round(np.nanmean([v[0], v[1], v[8], v[15]]), 2),
+            "Percezione Stato": round(np.nanmean([v[12], v[13], v[17]]), 2)
         }
-    except:
-        return {"Kinesiofobia & Paura": 0, "Accettazione (Approccio PACT)": 0, "Autoefficacia Motoria": 0, "Percezione Stato Funzionale": 0}
+    except: return {"Kinesiofobia": 0, "Accettazione PACT": 0, "Autoefficacia": 0, "Percezione Stato": 0}
 
-def esegui_screening_geriatrici(riga_valutazione, sesso_paziente):
-    alert_sarcopenia, alert_frailty, alert_cadute = "Verde", "Verde", "Verde"
+def esegui_screening_geriatrici(riga_val, sesso):
+    out = {"sarcopenia": "Verde", "frailty": "Verde", "cadute": "Verde"}
     try:
-        hg_dx = pd.to_numeric(riga_valutazione.iloc[22], errors='coerce')
-        hg_sn = pd.to_numeric(riga_valutazione.iloc[23], errors='coerce')
-        max_hg = max(np.nan_to_num(hg_dx), np.nan_to_num(hg_sn))
-        tug = pd.to_numeric(riga_valutazione.iloc[11], errors='coerce')
-        sts = pd.to_numeric(riga_valutazione.iloc[12], errors='coerce')
-        sppb = sum([np.nan_to_num(pd.to_numeric(riga_valutazione.iloc[13], errors='coerce')), 
-                    np.nan_to_num(pd.to_numeric(riga_valutazione.iloc[14], errors='coerce')), 
-                    np.nan_to_num(pd.to_numeric(riga_valutazione.iloc[15], errors='coerce'))])
+        max_hg = max(np.nan_to_num(pd.to_numeric(riga_val.iloc[22], errors='coerce')), np.nan_to_num(pd.to_numeric(riga_val.iloc[23], errors='coerce')))
+        tug = pd.to_numeric(riga_val.iloc[11], errors='coerce')
+        sts = pd.to_numeric(riga_val.iloc[12], errors='coerce')
+        sppb = sum([np.nan_to_num(pd.to_numeric(riga_val.iloc[i], errors='coerce')) for i in [13,14,15]])
         
-        # Sarcopenia
-        cutoff_hg = 27 if str(sesso_paziente).lower() == "uomo" else 16
-        if max_hg > 0 and max_hg < cutoff_hg: alert_sarcopenia = "Rosso (Sarcopenia Sospetta - Richiesto approfondimento)"
-        elif sts > 15: alert_sarcopenia = "Giallo (Forza muscolare ridotta alla sedia)"
-        else: alert_sarcopenia = "Verde (Forza e massa nella norma)"
+        cutoff_hg = 27 if str(sesso).lower() == "uomo" else 16
+        if 0 < max_hg < cutoff_hg: out["sarcopenia"] = "Rosso (Sarcopenia Sospetta)"
+        elif sts > 15: out["sarcopenia"] = "Giallo (Forza sedia ridotta)"
             
-        # Fragilità
-        punti = sum([1 if sppb < 9 else 0, 1 if (max_hg > 0 and max_hg < cutoff_hg) else 0, 1 if sts > 15 else 0])
-        if punti >= 2: alert_frailty = "Rosso (Paziente Fragile - Rischio avverso elevato)"
-        elif punti == 1: alert_frailty = "Giallo (Paziente Pre-Fragile)"
-        else: alert_frailty = "Verde (Paziente Robusto)"
+        punti = sum([1 if sppb < 9 else 0, 1 if (0 < max_hg < cutoff_hg) else 0, 1 if sts > 15 else 0])
+        if punti >= 2: out["frailty"] = "Rosso (Paziente Fragile)"
+        elif punti == 1: out["frailty"] = "Giallo (Pre-Fragile)"
         
-        # Cadute
-        if tug > 12 or sppb < 10: alert_cadute = "Rosso (Rischio Cadute Elevato)"
-        else: alert_cadute = "Verde (Basso Rischio Cadute)"
+        if tug > 12 or sppb < 10: out["cadute"] = "Rosso (Rischio Elevato)"
     except: pass
-    return {"sarcopenia": alert_sarcopenia, "frailty": alert_frailty, "cadute": alert_cadute}
+    return out
 
-def genera_pdf_report(paz_id, df_paz, df_val):
+def salva_fig_temp(fig):
+    try:
+        fd, path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)
+        fig.write_image(path, engine="kaleido")
+        return path
+    except: return None
+
+def genera_pdf_report(paz_id, df_paz, df_val, figure_grafici=None):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, f"Report Clinico Riabilitativo - ID Paziente: {paz_id}", ln=True, align='C')
+    pdf.cell(0, 10, f"Report Clinico Riabilitativo - ID: {paz_id}", ln=True, align='C')
     pdf.ln(5)
     
+    sesso = "Donna"
     if not df_paz.empty:
-        paz_record = df_paz.iloc[-1]
+        rec = df_paz.iloc[-1]
+        sesso = rec.iloc[5]
         pdf.set_font("Arial", 'B', 12)
         pdf.cell(0, 8, "1. Dati Anagrafici e Clinici:", ln=True)
         pdf.set_font("Arial", '', 11)
-        pdf.cell(0, 7, f"Sesso: {paz_record.iloc[5]} | Eta': {paz_record.iloc[4]}", ln=True)
-        pdf.cell(0, 7, f"Patologie Sistemiche: {paz_record.iloc[8]}", ln=True)
-        pdf.cell(0, 7, f"Limitazioni Meccaniche: {paz_record.iloc[7]}", ln=True)
+        pdf.cell(0, 6, f"Sesso: {sesso} | Eta': {rec.iloc[4]}", ln=True)
+        pdf.cell(0, 6, f"Patologie: {rec.iloc[8]}", ln=True)
         pdf.ln(5)
         
     if not df_val.empty:
-        val_record = df_val.iloc[-1]
+        rec = df_val.iloc[-1]
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 8, "2. Ultima Valutazione Funzionale Obiettiva:", ln=True)
+        pdf.cell(0, 8, "2. Ultima Valutazione Funzionale:", ln=True)
         pdf.set_font("Arial", '', 11)
-        pdf.cell(0, 7, f"Data Valutazione: {val_record.iloc[0]}", ln=True)
-        pdf.cell(0, 7, f"TUG (Agilita'): {val_record.iloc[11]} s", ln=True)
-        pdf.cell(0, 7, f"5xSTS (Forza Sedia): {val_record.iloc[12]} s", ln=True)
-        pdf.cell(0, 7, f"Forza Quadricipite (DX/SN): {val_record.iloc[16]} / {val_record.iloc[17]} Kg", ln=True)
-        pdf.cell(0, 7, f"Handgrip (DX/SN): {val_record.iloc[22]} / {val_record.iloc[23]} Kg", ln=True)
+        pdf.cell(0, 6, f"Data: {rec.iloc[0]} | TUG: {rec.iloc[11]} s | 5xSTS: {rec.iloc[12]} s", ln=True)
+        pdf.cell(0, 6, f"Quadricipite (DX/SN): {rec.iloc[16]} / {rec.iloc[17]} Kg", ln=True)
         pdf.ln(5)
         
-        sesso_paz = df_paz.iloc[-1, 5] if not df_paz.empty else "Donna"
-        esiti = esegui_screening_geriatrici(val_record, sesso_paz)
+        esiti = esegui_screening_geriatrici(rec, sesso)
         pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 8, "3. Screening Sindromi Geriatriche:", ln=True)
+        pdf.cell(0, 8, "3. Screening Geriatrico:", ln=True)
         pdf.set_font("Arial", '', 11)
-        pdf.cell(0, 7, f"Sarcopenia: {esiti['sarcopenia']}", ln=True)
-        pdf.cell(0, 7, f"Fragilita': {esiti['frailty']}", ln=True)
-        pdf.cell(0, 7, f"Rischio Cadute: {esiti['cadute']}", ln=True)
+        pdf.cell(0, 6, f"Sarcopenia: {esiti['sarcopenia']}", ln=True)
+        pdf.cell(0, 6, f"Fragilita': {esiti['frailty']}", ln=True)
+        pdf.cell(0, 6, f"Rischio Cadute: {esiti['cadute']}", ln=True)
+        pdf.ln(5)
 
-    try:
-        return pdf.output(dest='S').encode('latin-1')
-    except:
-        return bytes(pdf.output(dest='S'))
+    # Iniezione Immagini Grafici nel PDF
+    if figure_grafici:
+        for fig in figure_grafici:
+            img_path = salva_fig_temp(fig)
+            if img_path:
+                pdf.add_page()
+                pdf.image(img_path, x=10, w=190)
+                os.remove(img_path) # Pulizia file temporaneo
+            else:
+                pdf.set_font("Arial", 'I', 10)
+                pdf.cell(0, 6, "(Per includere i grafici nel PDF e' necessaria la libreria 'kaleido')", ln=True)
+                break
+
+    try: return pdf.output(dest='S').encode('latin-1')
+    except: return bytes(pdf.output(dest='S'))
 
 # ==============================================================================
 # MENU LATERALE
@@ -362,46 +339,45 @@ if modalita_principale == "📋 Screening Iniziale (Paziente)":
     
     with st.form("form_paziente_totale"):
         st.subheader("📌 Sezione A: Identificazione e Tempistica")
-        fase_paziente = st.selectbox("Fase della valutazione attuale:", OPZIONI_FASE)
-        col_consenso = st.selectbox("Consenso Informato GDPR:", ["Ho letto l'informativa e acconsento liberamente al trattamento dei miei dati personali e sanitari per le finalità riabilitative descritte.", "Non acconsento."])
-        col_compilatore = st.selectbox("Chi sta inserendo i dati?", ["Paziente stesso", "Familiare", "Caregiver / Assistente"])
-        col_ini, col_an, col_sesso = st.columns(3)
-        with col_ini: iniziali = st.text_input("Iniziali Paziente (Max 3 lettere):", max_chars=3).strip().upper()
-        with col_an: anno_nascita = st.number_input("Anno di Nascita:", 1920, 2016, 1950)
-        with col_sesso: sesso = st.selectbox("Sesso Biologico:", ["Uomo", "Donna"])
-        situazione_abitativa = st.selectbox("Contesto abitativo:", ["Vive da solo/a in totale autonomia", "Vive con familiari / coniuge", "Vive con un assistente continuo o badante"])
+        fase_paziente = st.selectbox("Fase della valutazione:", OPZIONI_FASE)
+        col_consenso = st.selectbox("Consenso GDPR:", ["Acconsento al trattamento dati", "Non acconsento"])
+        col_compilatore = st.selectbox("Compilatore:", ["Paziente stesso", "Familiare", "Caregiver"])
+        c1, c2, c3 = st.columns(3)
+        with c1: iniziali = st.text_input("Iniziali (Max 3):", max_chars=3).strip().upper()
+        with c2: anno_nascita = st.number_input("Anno di Nascita:", 1920, 2016, 1950)
+        with c3: sesso = st.selectbox("Sesso:", ["Uomo", "Donna"])
+        situazione_abitativa = st.selectbox("Contesto abitativo:", ["Autonomia totale", "Con familiari", "Con badante"])
         
-        st.subheader("🩺 Sezione B: Anamnesi Generale e Sintomi")
-        condizioni_mecc = st.multiselect("Limitazioni strutturali/meccaniche note:", ["Artrosi Severa", "Osteoporosi", "Protesi d'anca", "Protesi di ginocchio", "Nessuna"])
-        condizioni_sist = st.multiselect("Comorbilità sistemiche:", ["Ipertensione arteriosa", "Diabete", "Cardiopatia", "Nessuna"])
-        sintomi_red = st.multiselect("Segnali d'allarme (Red Flags):", ["Perdita di peso inspiegabile", "Febbre persistente", "Intorpidimento improvviso agli arti", "Nessuno di questi sintomi"])
-        dolore_nrs = st.slider("Intensità media del dolore nelle ultime 24 ore (NRS 0-10):", 0, 10, 5)
-        farmaci = st.text_input("Terapie farmacologiche in corso (separate da virgola):")
-        specifiche_cliniche = st.text_area("Note e specificità anamnestiche (opzionale):")
+        st.subheader("🩺 Sezione B: Anamnesi Generale")
+        condizioni_mecc = st.multiselect("Limitazioni meccaniche:", ["Artrosi Severa", "Osteoporosi", "Protesi d'anca", "Protesi di ginocchio", "Nessuna"])
+        condizioni_sist = st.multiselect("Comorbilità:", ["Ipertensione", "Diabete", "Cardiopatia", "Nessuna"])
+        sintomi_red = st.multiselect("Red Flags:", ["Perdita di peso", "Febbre persistente", "Intorpidimento arti", "Nessuno"])
+        dolore_nrs = st.slider("Dolore medio 24h (0-10):", 0, 10, 5)
+        farmaci = st.text_input("Farmaci:")
+        specifiche_cliniche = st.text_area("Note cliniche:")
 
-        st.subheader("🧠 Sezione C: Esplorazione del Vissuto e della Dimensione Psicocomportamentale")
-        st.caption("Punteggi da 1 (Completamente in disaccordo / Mai) a 10 (Completamente d'accordo / Sempre)")
-        
-        v1 = st.slider("1. Nelle ultime 2 settimane mi sono sentito/a energico/a e vitale", 1, 10, 5)
-        v2 = st.slider("2. Quanto spesso si sente contento/a della propria routine quotidiana?", 1, 10, 5)
-        v3 = st.slider("3. Sento che alcuni pensieri o preoccupazioni bloccano le mie azioni", 1, 10, 5)
-        v4 = st.slider("4. Sente di avere un carattere resiliente di fronte alle difficoltà fisiche?", 1, 10, 5)
-        v5 = st.slider("5. Quando mi arrabbio o mi spavento, fatico a calmarmi fisicamente", 1, 10, 5)
-        v6 = st.slider("6. Quanto la fa sentire furioso/a l'idea di aver perso parte della sua mobilità?", 1, 10, 5)
-        v7 = st.slider("7. Non avrei così tanto dolore se potessi controllare la mia mente", 1, 10, 5)
-        v8 = st.slider("8. Quando si sente dolore, interrompe immediatamente qualsiasi attività?", 1, 10, 5)
-        v9 = st.slider("9. Quanto crede che l'attività fisica sia sicuro ed efficace per la sua salute?", 1, 10, 5)
-        v10 = st.slider("10. Sente di non poter svolgere i compiti domestici per paura di subire lesioni?", 1, 10, 5)
-        v11 = st.slider("11. Sente che le attività quotidiane aumentano il rischio di usura articolare?", 1, 10, 5)
-        v12 = st.slider("12. Quanto si sente spaventato/a all'idea di perdere l'equilibrio e cadere?", 1, 10, 5)
-        v13 = st.slider("13. Quando si trova in piedi, percepisce instabilità o debolezza?", 1, 10, 5)
-        v14 = st.slider("14. Quanto si sente sicuro/a nel salire e scendere le scale in autonomia?", 1, 10, 5)
-        v15 = st.slider("15. Sente che il dolore fisico definisce interamente la sua identità attuale?", 1, 10, 5)
-        v16 = st.slider("16. Sente di riuscire a condurre una vita densa di significato nonostante i sintomi?", 1, 10, 5)
-        v17 = st.slider("17. Pensa che prima di fare progetti sia obbligatorio eliminare del tutto il dolore?", 1, 10, 5)
-        v18 = st.slider("18. Quanto si sente sicuro/a nell'alzarsi da una sedia senza usare le braccia?", 1, 10, 5)
+        st.subheader("🧠 Sezione C: Vissuto Psicocomportamentale")
+        st.caption("Da 1 (Mai / In disaccordo) a 10 (Sempre / D'accordo)")
+        v1 = st.slider("1. Nelle ultime 2 settimane mi sono sentito energico", 1, 10, 5)
+        v2 = st.slider("2. Contento della routine quotidiana", 1, 10, 5)
+        v3 = st.slider("3. Pensieri o preoccupazioni bloccano le mie azioni", 1, 10, 5)
+        v4 = st.slider("4. Carattere resiliente di fronte alle difficoltà", 1, 10, 5)
+        v5 = st.slider("5. Quando mi spavento fatico a calmarmi", 1, 10, 5)
+        v6 = st.slider("6. Furioso per aver perso parte della mobilità", 1, 10, 5)
+        v7 = st.slider("7. Non avrei dolore se controllassi la mente", 1, 10, 5)
+        v8 = st.slider("8. Con il dolore interrompo subito ogni attività", 1, 10, 5)
+        v9 = st.slider("9. L'attività fisica è sicura ed efficace", 1, 10, 5)
+        v10 = st.slider("10. Evito i compiti domestici per paura di lesioni", 1, 10, 5)
+        v11 = st.slider("11. Le attività quotidiane aumentano l'usura articolare", 1, 10, 5)
+        v12 = st.slider("12. Spaventato all'idea di cadere", 1, 10, 5)
+        v13 = st.slider("13. In piedi percepisco instabilità/debolezza", 1, 10, 5)
+        v14 = st.slider("14. Sicuro nel fare le scale", 1, 10, 5)
+        v15 = st.slider("15. Il dolore definisce la mia identità", 1, 10, 5)
+        v16 = st.slider("16. Conduco una vita di significato nonostante i sintomi", 1, 10, 5)
+        v17 = st.slider("17. Obbligatorio eliminare il dolore per fare progetti", 1, 10, 5)
+        v18 = st.slider("18. Sicuro nell'alzarsi dalla sedia senza braccia", 1, 10, 5)
 
-        if st.form_submit_button("Invia ed Archivia Screening"):
+        if st.form_submit_button("Salva Screening"):
             eta = datetime.now().year - anno_nascita
             id_gen = f"{iniziali}{str(anno_nascita)[-2:]}"
             riga = [datetime.now().strftime("%d/%m/%Y %H.%M.%S"), col_consenso, id_gen, col_compilatore, eta, sesso, situazione_abitativa,
@@ -409,20 +385,15 @@ if modalita_principale == "📋 Screening Iniziale (Paziente)":
                     v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, specifiche_cliniche, fase_paziente]
             try:
                 conn.update(spreadsheet=URL_FOGLIO, worksheet="Dati_Paziente", data=pd.concat([df_paziente, pd.DataFrame([riga], columns=df_paziente.columns)], ignore_index=True))
-                st.success(f"Screening salvato correttamente per l'ID univoco: {id_gen} ({fase_paziente})")
+                st.success(f"Screening salvato correttamente. ID Paziente: {id_gen}")
                 
-                # Feedback Empatico
-                titolo, testo, tipo_msg = genera_feedback_empatico(v10, v12)
-                if tipo_msg == "success":
-                    st.success(f"**{titolo}**\n\n{testo}")
-                elif tipo_msg == "info":
-                    st.info(f"**{titolo}**\n\n{testo}")
-                else:
-                    st.warning(f"**{titolo}**\n\n{testo}")
-                    
+                t_titolo, t_testo, t_tipo = genera_feedback_empatico(v10, v12)
+                if t_tipo == "success": st.success(f"**{t_titolo}**\n\n{t_testo}")
+                elif t_tipo == "info": st.info(f"**{t_titolo}**\n\n{t_testo}")
+                else: st.warning(f"**{t_titolo}**\n\n{t_testo}")
+                
                 st.cache_data.clear()
-            except Exception as e: 
-                st.error(f"Errore di archiviazione: {e}")
+            except Exception as e: st.error(e)
 
 # ==============================================================================
 # AREA 2: PANNELLO FISIOTERAPISTA
@@ -438,12 +409,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
     if st.sidebar.button("🚪 Esci Sessione"): st.session_state.fiso_auth, _ = False, st.rerun()
 
     st.title("👨‍⚕️ Dashboard Clinica Avanzata")
-    sub_menu = st.radio("Ambito Operativo:", [
-        "🦾 Progressione Senior (NSCA)",
-        "📝 Registrazione Nuovi Test", 
-        "🧠 Analisi Multidimensionale & Longitudinale", 
-        "💾 Export Dati & Report PDF"
-    ], horizontal=True)
+    sub_menu = st.radio("Ambito Operativo:", ["🦾 Progressione Senior (NSCA)", "📝 Registrazione Nuovi Test", "🧠 Analisi Multidimensionale & Longitudinale", "💾 Export Dati & Report PDF"], horizontal=True)
     st.markdown("---")
 
     df_paz = leggi_dati_paziente()
@@ -451,11 +417,8 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
     col_id = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_paz.columns), df_paz.columns[2] if len(df_paz.columns)>2 else None)
     lista_paz = df_paz[col_id].dropna().astype(str).str.strip().unique().tolist() if not df_paz.empty and col_id else []
 
-    # --- SOTTO-PAGINA 1: PROGRESSIONE ---
-    if sub_menu == "🦾 Progressione Senior (NSCA)":
-        renderizza_sezione_fisioterapista(df_paz, df_val)
+    if sub_menu == "🦾 Progressione Senior (NSCA)": renderizza_sezione_fisioterapista(df_paz, df_val)
 
-    # --- SOTTO-PAGINA 2: TEST CLINICI ---
     elif sub_menu == "📝 Registrazione Nuovi Test":
         if not lista_paz: st.warning("Nessun paziente.")
         else:
@@ -480,233 +443,171 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 with c8: sts5 = st.number_input("5xSTS (s)", value=None)
                 with c9: satp = st.number_input("SatO2 Post %", value=None)
                 
-                rec = st.number_input("Recupero (min)", value=None)
-                
-                c10, c11, c12 = st.columns(3)
-                with c10: seq = st.number_input("SPPB Equilibrio", value=None)
-                with c11: scam = st.number_input("SPPB Cammino", value=None)
-                with c12: sch = st.number_input("SPPB Chair", value=None)
-                
                 c13, c14 = st.columns(2)
                 with c13:
                     qdx = st.number_input("Forza Quad DX", value=None)
                     gdx = st.number_input("Forza Gluteo DX", value=None)
-                    pdx = st.number_input("Forza Psoas DX", value=None)
                     hdx = st.number_input("Handgrip DX", value=None)
                 with c14:
                     qsn = st.number_input("Forza Quad SN", value=None)
                     gsn = st.number_input("Forza Gluteo SN", value=None)
-                    psn = st.number_input("Forza Psoas SN", value=None)
                     hsn = st.number_input("Handgrip SN", value=None)
 
                 if st.form_submit_button("Salva Test"):
-                    r = [datetime.now().strftime("%d/%m/%Y %H.%M.%S"), pas, fc, sat, ch30, step, fcp, satp, rec, "",
-                         p_scelto, tug, sts5, seq, scam, sch, qdx, qsn, gdx, gsn, pdx, psn, hdx, hsn, fc_max, fase]
+                    r = [datetime.now().strftime("%d/%m/%Y %H.%M.%S"), pas, fc, sat, ch30, step, fcp, satp, 0, "", p_scelto, tug, sts5, 0, 0, 0, qdx, qsn, gdx, gsn, 0, 0, hdx, hsn, fc_max, fase]
                     try:
                         conn.update(spreadsheet=URL_FOGLIO, worksheet="Valutazioni_Studio", data=pd.concat([df_val, pd.DataFrame([r], columns=df_val.columns)], ignore_index=True))
-                        st.success("Test Salvato.")
-                        st.cache_data.clear()
+                        st.success("Test Salvato."); st.cache_data.clear()
                     except Exception as e: st.error(e)
 
-    # --- SOTTO-PAGINA 3: UNIFICATA MULTIDIMENSIONALE, BPS E LONGITUDINALE ---
     elif sub_menu == "🧠 Analisi Multidimensionale & Longitudinale":
-        st.subheader("Pannello di Analisi Clinica Integrata")
-        if not lista_paz:
-            st.warning("Nessun paziente registrato.")
+        if not lista_paz: st.warning("Nessun paziente registrato.")
         else:
-            paz_scelto = st.selectbox("Seleziona Paziente da analizzare:", lista_paz, key="sb_multi")
-            
+            paz_scelto = st.selectbox("Analizza Paziente:", lista_paz, key="sb_multi")
             st_paz = df_paz[df_paz[col_id].astype(str).str.strip() == paz_scelto]
+            
             col_id_v = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_val.columns), df_val.columns[10] if len(df_val.columns)>10 else None)
             df_v_clean = df_val.dropna(subset=[df_val.columns[10], df_val.columns[25]]) if not df_val.empty else pd.DataFrame()
             st_val = df_v_clean[df_v_clean[col_id_v].astype(str).str.strip() == paz_scelto].copy() if not df_v_clean.empty else pd.DataFrame()
 
-            tab_bps, tab_cds, tab_long = st.tabs(["🧠 Radar Biopsicosociale (PACT)", "🧫 Screening Sindromi Geriatriche", "📈 Grafici Forza & Funzione (Delta % Baseline)"])
+            t_bps, t_cds, t_long = st.tabs(["🧠 Radar PACT", "🧫 Screening", "📈 Evoluzione Funzionale"])
             
-            # TAB 1: RADAR BPS
-            with tab_bps:
-                st.markdown("#### Mappatura Psicocomportamentale")
+            with t_bps:
                 if not st_paz.empty:
-                    fase_scelta = st.selectbox("Fase Screening BPS:", st_paz.iloc[:, 31].dropna().unique())
-                    riga_mirata = st_paz[st_paz.iloc[:, 31] == fase_scelta].iloc[0]
-                    dim = calcola_dimensioni_biopsicosociali(riga_mirata)
+                    f_scelta = st.selectbox("Fase BPS:", st_paz.iloc[:, 31].dropna().unique())
+                    dim = calcola_dimensioni_biopsicosociali(st_paz[st_paz.iloc[:, 31] == f_scelta].iloc[0])
+                    cat, val = list(dim.keys()) + [list(dim.keys())[0]], list(dim.values()) + [list(dim.values())[0]]
                     
-                    cat = list(dim.keys())
-                    val = list(dim.values())
-                    cat += cat[:1]
-                    val += val[:1]
-                    
-                    fig_radar = go.Figure(go.Scatterpolar(r=val, theta=cat, fill='toself', line_color="#1f77b4"))
-                    fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 10])), showlegend=False, height=400)
-                    st.plotly_chart(fig_radar, use_container_width=True)
-                    
-                    c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("Kinesiofobia", f"{dim['Kinesiofobia & Paura']}/10")
-                    c2.metric("Accettazione PACT", f"{dim['Accettazione (Approccio PACT)']}/10")
-                    c3.metric("Autoefficacia", f"{dim['Autoefficacia Motoria']}/10")
-                    c4.metric("Percezione Stato", f"{dim['Percezione Stato Funzionale']}/10")
-                else: st.info("Dati BPS assenti.")
+                    fig = go.Figure(go.Scatterpolar(r=val, theta=cat, fill='toself'))
+                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 10])))
+                    st.plotly_chart(fig, use_container_width=True)
+                else: st.info("Dati assenti.")
 
-            # TAB 2: SCREENING CDS (BOX COLORATI)
-            with tab_cds:
-                st.markdown("#### Esito Algoritmi Decision Support (Linee Guida)")
+            with t_cds:
                 if not st_paz.empty and not st_val.empty:
-                    sesso = st_paz.iloc[-1, 5] if len(st_paz.columns) > 5 else "Donna"
-                    esiti = esegui_screening_geriatrici(st_val.iloc[-1], sesso)
-                    
-                    if "Rosso" in esiti["sarcopenia"]: st.error(f"**Sarcopenia:** {esiti['sarcopenia']}")
-                    elif "Giallo" in esiti["sarcopenia"]: st.warning(f"**Sarcopenia:** {esiti['sarcopenia']}")
-                    else: st.success(f"**Sarcopenia:** {esiti['sarcopenia']}")
-                    
-                    if "Rosso" in esiti["frailty"]: st.error(f"**Fragilità (Frailty):** {esiti['frailty']}")
-                    elif "Giallo" in esiti["frailty"]: st.warning(f"**Fragilità (Frailty):** {esiti['frailty']}")
-                    else: st.success(f"**Fragilità (Frailty):** {esiti['frailty']}")
-                    
-                    if "Rosso" in esiti["cadute"]: st.error(f"**Rischio Cadute:** {esiti['cadute']}")
-                    else: st.success(f"**Rischio Cadute:** {esiti['cadute']}")
-                else:
-                    st.info("Necessari test funzionali completi per eseguire lo screening.")
+                    esiti = esegui_screening_geriatrici(st_val.iloc[-1], st_paz.iloc[-1, 5] if len(st_paz.columns)>5 else "Donna")
+                    for cat, v in esiti.items():
+                        if "Rosso" in v: st.error(f"**{cat.upper()}:** {v}")
+                        elif "Giallo" in v: st.warning(f"**{cat.upper()}:** {v}")
+                        else: st.success(f"**{cat.upper()}:** {v}")
+                else: st.info("Servono test completi.")
 
-            # TAB 3: GRAFICI LONGITUDINALI SU BASELINE
-            with tab_long:
-                st.markdown("#### Evoluzione Variazione % rispetto alla Baseline (Seduta Iniziale = 0%)")
+            with t_long:
                 if not st_val.empty and len(st_val) > 0:
                     st_val["Ordine_X"] = st_val.iloc[:, 25].apply(estrai_ordine)
                     st_val = st_val.sort_values("Ordine_X")
                     st_val["Asse_X"] = st_val.apply(formatta_asse_x, axis=1)
                     
-                    baseline_row = st_val.iloc[0]
-                    st_val_perc = st_val.copy()
+                    # Logica Filtraggio Asse X con Baseline fissa
+                    fasi_disp = st_val["Asse_X"].unique().tolist()
+                    baseline_label = next((f for f in fasi_disp if "Baseline" in f), fasi_disp[0])
+                    fasi_followup = [f for f in fasi_disp if f != baseline_label]
                     
-                    for col in [11, 12, 16, 17, 22, 23]:
-                        base_val = pd.to_numeric(baseline_row.iloc[col], errors='coerce')
-                        if pd.notna(base_val) and base_val != 0:
-                            st_val_perc.iloc[:, col] = ((pd.to_numeric(st_val.iloc[:, col], errors='coerce') - base_val) / base_val) * 100
-                        else:
-                            st_val_perc.iloc[:, col] = 0.0
+                    scelte_fu = st.multiselect("Seleziona Follow-up da confrontare:", fasi_followup, default=fasi_followup)
+                    fasi_filtro = [baseline_label] + scelte_fu
+                    
+                    st_v_filt = st_val[st_val["Asse_X"].isin(fasi_filtro)]
+                    
+                    # Calcolo Delta Percentuale sulla riga Baseline (indice 0 del dataframe intero)
+                    base_row = st_val.iloc[0]
+                    st_perc = st_v_filt.copy()
+                    
+                    for c in [11, 12, 16, 17, 22, 23]:
+                        bv = pd.to_numeric(base_row.iloc[c], errors='coerce')
+                        st_perc.iloc[:, c] = ((pd.to_numeric(st_v_filt.iloc[:, c], errors='coerce') - bv) / bv * 100) if pd.notna(bv) and bv != 0 else 0.0
 
                     c_f, c_p = st.columns(2)
                     with c_f:
                         fig_f = go.Figure()
-                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 16], name="Quad DX", mode='lines+markers'))
-                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 17], name="Quad SN", mode='lines+markers'))
-                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 22], name="Grip DX", mode='lines+markers', line=dict(dash='dash')))
-                        fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 23], name="Grip SN", mode='lines+markers', line=dict(dash='dash')))
-                        
-                        # Ordine rigido asse X
-                        fig_f.update_xaxes(categoryorder='array', categoryarray=st_val_perc["Asse_X"])
-                        fig_f.update_layout(title="Variazione Forza (Delta %)", yaxis_title="Miglioramento %", legend_orientation="h")
+                        fig_f.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc.iloc[:, 16], name="Quad DX", mode='lines+markers'))
+                        fig_f.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc.iloc[:, 22], name="Grip DX", mode='lines+markers', line=dict(dash='dash')))
+                        fig_f.update_xaxes(categoryorder='array', categoryarray=fasi_filtro)
+                        fig_f.update_layout(title="Variazione Forza (Delta %)", yaxis_title="%")
                         st.plotly_chart(fig_f, use_container_width=True)
                     with c_p:
                         fig_p = go.Figure()
-                        fig_p.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 11], name="TUG (Tempo)", mode='lines+markers'))
-                        fig_p.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 12], name="5xSTS (Tempo)", mode='lines+markers'))
+                        fig_p.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc.iloc[:, 11], name="TUG (Tempo)", mode='lines+markers'))
+                        fig_p.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc.iloc[:, 12], name="5xSTS", mode='lines+markers'))
+                        fig_p.update_xaxes(categoryorder='array', categoryarray=fasi_filtro)
                         
-                        # Ordine rigido asse X e Y invertita per i test a cronometro
-                        fig_p.update_xaxes(categoryorder='array', categoryarray=st_val_perc["Asse_X"])
+                        # INVERSIONE ASSE Y (Variazione Funzionale Fisioterapista)
                         fig_p.update_yaxes(autorange="reversed")
-                        fig_p.update_layout(title="Variazione Funzionale (Delta %)", yaxis_title="Riduzione Tempo %", legend_orientation="h")
+                        fig_p.update_layout(title="Variazione Tempi Funzionali (Delta %)", yaxis_title="% Tempo (Linea su = Più veloce)")
                         st.plotly_chart(fig_p, use_container_width=True)
-                else: st.info("Dati longitudinali insufficienti.")
 
-    # --- SOTTO-PAGINA 4: EXPORT & PDF ---
     elif sub_menu == "💾 Export Dati & Report PDF":
-        st.subheader("Esportazione Dati e Refertazione")
-        
-        c_csv, c_pdf = st.columns(2)
-        with c_csv:
-            st.markdown("**1. Scarica Database Grezzo (CSV)**")
-            st.download_button("Export Anagrafiche CSV", df_paz.to_csv(index=False), "pazienti.csv", "text/csv")
-            st.download_button("Export Valutazioni CSV", df_val.to_csv(index=False), "valutazioni.csv", "text/csv")
-            
-        with c_pdf:
-            st.markdown("**2. Genera Referto Clinico in PDF**")
-            if not lista_paz:
-                st.warning("Nessun paziente disponibile per il PDF.")
-            else:
-                paz_pdf = st.selectbox("Seleziona Paziente per Report:", lista_paz, key="sb_pdf")
-                if st.button("Genera Report PDF"):
-                    try:
-                        import fpdf
-                        col_id_v = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_val.columns), df_val.columns[10] if len(df_val.columns)>10 else None)
-                        st_paz = df_paz[df_paz[col_id].astype(str).str.strip() == paz_pdf]
-                        st_val = df_val[df_val[col_id_v].astype(str).str.strip() == paz_pdf] if col_id_v and not df_val.empty else pd.DataFrame()
-                        
-                        pdf_bytes = genera_pdf_report(paz_pdf, st_paz, st_val)
-                        st.download_button(label="📥 Scarica PDF", data=pdf_bytes, file_name=f"Report_Clinico_{paz_pdf}.pdf", mime="application/pdf")
-                    except ImportError:
-                        st.error("Libreria FPDF non trovata. Aggiungi 'fpdf' al file requirements.txt o installa localmente con 'pip install fpdf'.")
+        st.subheader("Report e Database")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button("Export Pazienti", df_paz.to_csv(index=False), "paz.csv", "text/csv")
+            st.download_button("Export Valutazioni", df_val.to_csv(index=False), "val.csv", "text/csv")
+        with c2:
+            if lista_paz:
+                p_pdf = st.selectbox("Paziente per PDF:", lista_paz)
+                if st.button("Genera PDF"):
+                    col_id_v = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_val.columns), df_val.columns[10] if len(df_val.columns)>10 else None)
+                    paz = df_paz[df_paz[col_id].astype(str).str.strip() == p_pdf]
+                    val = df_val[df_val[col_id_v].astype(str).str.strip() == p_pdf] if col_id_v and not df_val.empty else pd.DataFrame()
+                    
+                    figure_da_stampare = []
+                    # Se ci sono dati, genero i grafici per il PDF in background
+                    if not val.empty and len(val) > 0:
+                        val["Ordine_X"] = val.iloc[:, 25].apply(estrai_ordine)
+                        val = val.sort_values("Ordine_X")
+                        val["Asse_X"] = val.apply(formatta_asse_x, axis=1)
+                        f_pdf = go.Figure()
+                        f_pdf.add_trace(go.Scatter(x=val["Asse_X"], y=pd.to_numeric(val.iloc[:, 16], errors='coerce'), name="Quad DX", mode='lines+markers'))
+                        f_pdf.update_layout(title="Andamento Storico Quadricipite (Kg)")
+                        figure_da_stampare.append(f_pdf)
+                    
+                    st.download_button("📥 Scarica Report PDF", data=genera_pdf_report(p_pdf, paz, val, figure_da_stampare), file_name=f"Report_{p_pdf}.pdf", mime="application/pdf")
 
 # ==============================================================================
 # AREA 3: PORTALE PAZIENTE
 # ==============================================================================
 elif modalita_principale == "🔐 Area Personale (Paziente)":
-    st.title("🔐 Il tuo Spazio Riabilitativo")
-    df_paziente = leggi_dati_paziente()
-    df_valutazioni = leggi_dati_valutazioni()
+    st.title("🔐 Spazio Riabilitativo")
+    df_p = leggi_dati_paziente()
+    df_v = leggi_dati_valutazioni()
     
-    if df_paziente.empty:
-        st.warning("Sistema in aggiornamento.")
+    if df_p.empty: st.warning("In aggiornamento.")
     else:
-        col_id_paz = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_paziente.columns), df_paziente.columns[2])
-        lista_id = df_paziente[col_id_paz].dropna().astype(str).str.strip().unique().tolist()
+        cid = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_p.columns), df_p.columns[2])
+        l_id = df_p[cid].dropna().astype(str).str.strip().unique().tolist()
         
-        paz_id = st.text_input("Inserisci il tuo codice identificativo (es. RM50):").strip().upper()
-        if paz_id:
-            if paz_id in lista_id:
-                st.success(f"Benvenuto/a, ID {paz_id}!")
+        pid = st.text_input("Il tuo ID (es. RM50):").strip().upper()
+        if pid in l_id:
+            st.success(f"Benvenuto, {pid}!")
+            cv = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_v.columns), df_v.columns[10])
+            sv = df_v[df_v[cv].astype(str).str.strip() == pid].copy()
+            
+            if not sv.empty and len(sv) > 0:
+                sv["Ordine_X"] = sv.iloc[:, 25].apply(estrai_ordine)
+                sv = sv.sort_values("Ordine_X")
+                sv["Asse_X"] = sv.apply(formatta_asse_x, axis=1)
                 
-                col_id_val = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_valutazioni.columns), df_valutazioni.columns[10])
-                st_val = df_valutazioni[df_valutazioni[col_id_val].astype(str).str.strip() == paz_id].copy()
+                # Selettore Fasi con Baseline fissa
+                fasi_disp = sv["Asse_X"].unique().tolist()
+                b_label = next((f for f in fasi_disp if "Baseline" in f), fasi_disp[0])
+                fu_disp = [f for f in fasi_disp if f != b_label]
                 
-                if not st_val.empty and len(st_val) > 0:
-                    st_val["Ordine_X"] = st_val.iloc[:, 25].apply(estrai_ordine)
-                    st_val = st_val.sort_values("Ordine_X")
-                    st_val["Asse_X"] = st_val.apply(formatta_asse_x, axis=1)
-                    
-                    # Box Riassuntivo Algoritmico
-                    if len(st_val) > 1:
-                        prima_seduta = st_val.iloc[0]
-                        ultima_seduta = st_val.iloc[-1]
-                        tug_inizio = pd.to_numeric(prima_seduta.iloc[11], errors='coerce')
-                        tug_fine = pd.to_numeric(ultima_seduta.iloc[11], errors='coerce')
-                        
-                        if pd.notna(tug_inizio) and pd.notna(tug_fine):
-                            delta = tug_inizio - tug_fine
-                            if delta > 1.0:
-                                st.info("🎉 **Ottimo lavoro!** L'analisi dei tuoi dati mostra un netto miglioramento nella tua agilità e nel tuo equilibrio. Stai riducendo significativamente il rischio di cadute. Continua con questo impegno costante negli esercizi!")
-                            elif delta < -1.0:
-                                st.warning("💡 **Mantieni la rotta:** I parametri indicano una lieve stanchezza o variazione nell'agilità. Parlane con il fisioterapista alla prossima seduta per calibrare al meglio gli esercizi.")
-                            else:
-                                st.success("✅ **Stabilità confermata:** Stai mantenendo i tuoi livelli di forza ed equilibrio. La costanza è la chiave per proteggere la tua autonomia nel tempo.")
-
-                    st.markdown("---")
-                    st.subheader("📈 I tuoi Progressi Visivi")
-                    
-                    # Grafici Paziente
-                    c_p1, c_p2 = st.columns(2)
-                    with c_p1:
-                        fig_m = go.Figure()
-                        fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 11], name="Agilità (TUG)", mode="lines+markers", line=dict(color="orange")))
-                        fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 12], name="Forza Gambe (Sedia)", mode="lines+markers", line=dict(color="green")))
-                        
-                        # Ordine rigido cronologico (Da Sinistra = Vecchio a Destra = Nuovo)
-                        fig_m.update_xaxes(categoryorder='array', categoryarray=st_val["Asse_X"])
-                        
-                        # Inversione Asse Y: un tempo minore posiziona il punto visivamente più in alto
-                        fig_m.update_yaxes(autorange="reversed")
-                        fig_m.update_layout(title="Miglioramento dell'Autonomia (Linea Ascendente = Più Agilità)", legend_orientation="h")
-                        st.plotly_chart(fig_m, use_container_width=True)
-                        
-                    with c_p2:
-                        fig_f = go.Figure()
-                        fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 22], name="Presa Mano DX", mode="lines+markers"))
-                        fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 23], name="Presa Mano SN", mode="lines+markers"))
-                        
-                        # Ordine rigido cronologico
-                        fig_f.update_xaxes(categoryorder='array', categoryarray=st_val["Asse_X"])
-                        fig_f.update_layout(title="Forza delle Braccia (Kg)", legend_orientation="h")
-                        st.plotly_chart(fig_f, use_container_width=True)
-                        
-                else: st.info("I tuoi test clinici sono in fase di elaborazione. Saranno visibili a breve.")
-            else: st.error("Codice ID non trovato. Riprova o contatta il fisioterapista.")
+                scelte = st.multiselect("Confronta la Baseline con i tuoi follow-up:", fu_disp, default=fu_disp)
+                fasi_grafici = [b_label] + scelte
+                sv_filt = sv[sv["Asse_X"].isin(fasi_grafici)]
+                
+                c_1, c_2 = st.columns(2)
+                with c_1:
+                    fig_m = go.Figure()
+                    fig_m.add_trace(go.Scatter(x=sv_filt["Asse_X"], y=pd.to_numeric(sv_filt.iloc[:, 11], errors='coerce'), name="Agilità (TUG)", mode="lines+markers"))
+                    fig_m.update_xaxes(categoryorder='array', categoryarray=fasi_grafici)
+                    fig_m.update_yaxes(autorange="reversed") # TUG Invertito (Meno tempo = più alto)
+                    fig_m.update_layout(title="La tua Autonomia (Sempre più in alto!)")
+                    st.plotly_chart(fig_m, use_container_width=True)
+                with c_2:
+                    fig_f = go.Figure()
+                    fig_f.add_trace(go.Scatter(x=sv_filt["Asse_X"], y=pd.to_numeric(sv_filt.iloc[:, 22], errors='coerce'), name="Presa DX", mode="lines+markers"))
+                    fig_f.update_xaxes(categoryorder='array', categoryarray=fasi_grafici)
+                    fig_f.update_layout(title="La Forza delle tue Braccia (Kg)")
+                    st.plotly_chart(fig_f, use_container_width=True)
+            else: st.info("Dati in elaborazione.")
+        elif pid: st.error("ID non valido.")
