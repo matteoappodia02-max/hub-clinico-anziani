@@ -2,3 +2,4 @@ plotly
 st-gsheets-connection
 pandas
 numpy
+fpdf
