@@ -223,15 +223,22 @@ def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
 OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
 MDC_SOGLIE = {"SPPB": 1.0, "TUG": -2.1, "STS_5X": -2.3, "HANDGRIP": 5.0}
 
+def estrai_ordine(fase_str):
+    mappa = {"Baseline": 1, "3": 2, "6": 3, "9": 4, "12": 5}
+    for k, v in mappa.items():
+        if k in fase_str: return v
+    return 6
+
 def formatta_asse_x(riga):
     try:
         data_pulita = str(riga.iloc[0]).split()[0]
         fase_completa = str(riga.iloc[25]).strip()
-        mappa = {"Baseline": ("1", "Baseline"), "3": ("2", "3M"), "6": ("3", "6M"), "9": ("4", "9M"), "12": ("5", "12M")}
-        ord_num, f_breve = "6", fase_completa
-        for k, (o, b) in mappa.items():
+        ord_num = estrai_ordine(fase_completa)
+        mappa_brev = {"Baseline": "Baseline", "3": "3M", "6": "6M", "9": "9M", "12": "12M"}
+        f_breve = fase_completa
+        for k, b in mappa_brev.items():
             if k in fase_completa:
-                ord_num, f_breve = o, b
+                f_breve = b
                 break
         return f"{ord_num}. {data_pulita} ({f_breve})"
     except: return "N/D"
@@ -323,7 +330,7 @@ def genera_pdf_report(paz_id, df_paz, df_val):
     try:
         return pdf.output(dest='S').encode('latin-1')
     except:
-        return bytes(pdf.output(dest='S')) # Gestione per FPDF2 vs FPDF
+        return bytes(pdf.output(dest='S'))
 
 # ==============================================================================
 # MENU LATERALE
@@ -343,36 +350,57 @@ if modalita_principale == "📋 Screening Iniziale (Paziente)":
     df_paziente = leggi_dati_paziente()
     
     with st.form("form_paziente_totale"):
-        st.subheader("📌 Sezione A: Identificazione")
-        fase_paziente = st.selectbox("Fase della valutazione:", OPZIONI_FASE)
-        col_consenso = st.selectbox("Consenso GDPR:", ["Acconsento", "Non acconsento"])
-        col_compilatore = st.selectbox("Compilato da:", ["Paziente stesso", "Familiare", "Caregiver"])
-        c1, c2, c3 = st.columns(3)
-        with c1: ini = st.text_input("Iniziali (Max 3):", max_chars=3).strip().upper()
-        with c2: anno = st.number_input("Anno di Nascita:", 1920, 2016, 1950)
-        with c3: sesso = st.selectbox("Sesso Biologico:", ["Uomo", "Donna"])
-        sit = st.selectbox("Contesto abitativo:", ["Autonomia", "Con familiari", "Con badante"])
+        st.subheader("📌 Sezione A: Identificazione e Tempistica")
+        fase_paziente = st.selectbox("Fase della valutazione attuale:", OPZIONI_FASE)
+        col_consenso = st.selectbox("Consenso Informato GDPR:", ["Ho letto l'informativa e acconsento liberamente al trattamento dei miei dati personali e sanitari per le finalità riabilitative descritte.", "Non acconsento."])
+        col_compilatore = st.selectbox("Chi sta inserendo i dati?", ["Paziente stesso", "Familiare", "Caregiver / Assistente"])
+        col_ini, col_an, col_sesso = st.columns(3)
+        with col_ini: iniziali = st.text_input("Iniziali Paziente (Max 3 lettere):", max_chars=3).strip().upper()
+        with col_an: anno_nascita = st.number_input("Anno di Nascita:", 1920, 2016, 1950)
+        with col_sesso: sesso = st.selectbox("Sesso Biologico:", ["Uomo", "Donna"])
+        situazione_abitativa = st.selectbox("Contesto abitativo:", ["Vive da solo/a in totale autonomia", "Vive con familiari / coniuge", "Vive con un assistente continuo o badante"])
         
-        st.subheader("🩺 Sezione B: Anamnesi")
-        c_mecc = st.multiselect("Limitazioni meccaniche:", ["Artrosi Severa", "Osteoporosi", "Protesi d'anca", "Protesi di ginocchio", "Nessuna"])
-        c_sist = st.multiselect("Comorbilità sistemiche:", ["Ipertensione arteriosa", "Diabete", "Cardiopatia", "Nessuna"])
-        red = st.multiselect("Red Flags:", ["Perdita di peso", "Febbre", "Intorpidimento", "Nessuno"])
-        nrs = st.slider("Dolore medio (0-10):", 0, 10, 5)
-        farmaci = st.text_input("Farmaci:")
-        spec = st.text_area("Note:")
+        st.subheader("🩺 Sezione B: Anamnesi Generale e Sintomi")
+        condizioni_mecc = st.multiselect("Limitazioni strutturali/meccaniche note:", ["Artrosi Severa", "Osteoporosi", "Protesi d'anca", "Protesi di ginocchio", "Nessuna"])
+        condizioni_sist = st.multiselect("Comorbilità sistemiche:", ["Ipertensione arteriosa", "Diabete", "Cardiopatia", "Nessuna"])
+        sintomi_red = st.multiselect("Segnali d'allarme (Red Flags):", ["Perdita di peso inspiegabile", "Febbre persistente", "Intorpidimento improvviso agli arti", "Nessuno di questi sintomi"])
+        dolore_nrs = st.slider("Intensità media del dolore nelle ultime 24 ore (NRS 0-10):", 0, 10, 5)
+        farmaci = st.text_input("Terapie farmacologiche in corso (separate da virgola):")
+        specifiche_cliniche = st.text_area("Note e specificità anamnestiche (opzionale):")
 
-        st.subheader("🧠 Sezione C: Vissuto Psicocomportamentale")
-        v = [st.slider(f"Q{i}", 1, 10, 5) for i in range(1, 19)]
+        st.subheader("🧠 Sezione C: Esplorazione del Vissuto e della Dimensione Psicocomportamentale")
+        st.caption("Punteggi da 1 (Completamente in disaccordo / Mai) a 10 (Completamente d'accordo / Sempre)")
+        
+        v1 = st.slider("1. Nelle ultime 2 settimane mi sono sentito/a energico/a e vitale", 1, 10, 5)
+        v2 = st.slider("2. Quanto spesso si sente contento/a della propria routine quotidiana?", 1, 10, 5)
+        v3 = st.slider("3. Sento che alcuni pensieri o preoccupazioni bloccano le mie azioni", 1, 10, 5)
+        v4 = st.slider("4. Sente di avere un carattere resiliente di fronte alle difficoltà fisiche?", 1, 10, 5)
+        v5 = st.slider("5. Quando mi arrabbio o mi spavento, fatico a calmarmi fisicamente", 1, 10, 5)
+        v6 = st.slider("6. Quanto la fa sentire furioso/a l'idea di aver perso parte della sua mobilità?", 1, 10, 5)
+        v7 = st.slider("7. Non avrei così tanto dolore se potessi controllare la mia mente", 1, 10, 5)
+        v8 = st.slider("8. Quando si sente dolore, interrompe immediatamente qualsiasi attività?", 1, 10, 5)
+        v9 = st.slider("9. Quanto crede che l'attività fisica sia sicuro ed efficace per la sua salute?", 1, 10, 5)
+        v10 = st.slider("10. Sente di non poter svolgere i compiti domestici per paura di subire lesioni?", 1, 10, 5)
+        v11 = st.slider("11. Sente che le attività quotidiane aumentano il rischio di usura articolare?", 1, 10, 5)
+        v12 = st.slider("12. Quanto si sente spaventato/a all'idea di perdere l'equilibrio e cadere?", 1, 10, 5)
+        v13 = st.slider("13. Quando si trova in piedi, percepisce instabilità o debolezza?", 1, 10, 5)
+        v14 = st.slider("14. Quanto si sente sicuro/a nel salire e scendere le scale in autonomia?", 1, 10, 5)
+        v15 = st.slider("15. Sente che il dolore fisico definisce interamente la sua identità attuale?", 1, 10, 5)
+        v16 = st.slider("16. Sente di riuscire a condurre una vita densa di significato nonostante i sintomi?", 1, 10, 5)
+        v17 = st.slider("17. Pensa che prima di fare progetti sia obbligatorio eliminare del tutto il dolore?", 1, 10, 5)
+        v18 = st.slider("18. Quanto si sente sicuro/a nell'alzarsi da una sedia senza usare le braccia?", 1, 10, 5)
 
-        if st.form_submit_button("Salva Screening"):
-            id_gen = f"{ini}{str(anno)[-2:]}"
-            riga = [datetime.now().strftime("%d/%m/%Y %H.%M.%S"), col_consenso, id_gen, col_compilatore, datetime.now().year - anno, sesso, sit,
-                    ", ".join(c_mecc), ", ".join(c_sist), ", ".join(red), nrs, farmaci] + v + [spec, fase_paziente]
+        if st.form_submit_button("Invia ed Archivia Screening"):
+            eta = datetime.now().year - anno_nascita
+            id_gen = f"{iniziali}{str(anno_nascita)[-2:]}"
+            riga = [datetime.now().strftime("%d/%m/%Y %H.%M.%S"), col_consenso, id_gen, col_compilatore, eta, sesso, situazione_abitativa,
+                    ", ".join(condizioni_mecc), ", ".join(condizioni_sist), ", ".join(sintomi_red), dolore_nrs, farmaci,
+                    v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, specifiche_cliniche, fase_paziente]
             try:
                 conn.update(spreadsheet=URL_FOGLIO, worksheet="Dati_Paziente", data=pd.concat([df_paziente, pd.DataFrame([riga], columns=df_paziente.columns)], ignore_index=True))
-                st.success(f"Salvato. ID: {id_gen}")
+                st.success(f"Screening salvato correttamente per l'ID univoco: {id_gen} ({fase_paziente})")
                 st.cache_data.clear()
-            except Exception as e: st.error(e)
+            except Exception as e: st.error(f"Errore di archiviazione: {e}")
 
 # ==============================================================================
 # AREA 2: PANNELLO FISIOTERAPISTA
@@ -497,7 +525,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     c4.metric("Percezione Stato", f"{dim['Percezione Stato Funzionale']}/10")
                 else: st.info("Dati BPS assenti.")
 
-            # TAB 2: SCREENING CDS (BOX COLORATI)
+            # TAB 2: SCREENING CDS
             with tab_cds:
                 st.markdown("#### Esito Algoritmi Decision Support (Linee Guida)")
                 if not st_paz.empty and not st_val.empty:
@@ -517,18 +545,17 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                 else:
                     st.info("Necessari test funzionali completi per eseguire lo screening.")
 
-            # TAB 3: GRAFICI LONGITUDINALI (% SU BASELINE)
+            # TAB 3: GRAFICI LONGITUDINALI SU BASELINE
             with tab_long:
                 st.markdown("#### Evoluzione Variazione % rispetto alla Baseline (Seduta Iniziale = 0%)")
                 if not st_val.empty and len(st_val) > 0:
+                    st_val["Ordine_X"] = st_val.iloc[:, 25].apply(estrai_ordine)
+                    st_val = st_val.sort_values("Ordine_X")
                     st_val["Asse_X"] = st_val.apply(formatta_asse_x, axis=1)
-                    st_val = st_val.sort_values("Asse_X")
                     
-                    # Calcolo Delta Percentuale rispetto alla riga Baseline (indice 0)
                     baseline_row = st_val.iloc[0]
                     st_val_perc = st_val.copy()
                     
-                    # Indici colonne: Quad DX(16), Quad SN(17), Grip DX(22), Grip SN(23), TUG(11), STS(12)
                     for col in [11, 12, 16, 17, 22, 23]:
                         base_val = pd.to_numeric(baseline_row.iloc[col], errors='coerce')
                         if pd.notna(base_val) and base_val != 0:
@@ -543,13 +570,18 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 17], name="Quad SN", mode='lines+markers'))
                         fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 22], name="Grip DX", mode='lines+markers', line=dict(dash='dash')))
                         fig_f.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 23], name="Grip SN", mode='lines+markers', line=dict(dash='dash')))
+                        
+                        # Ordine rigido asse X
+                        fig_f.update_xaxes(categoryorder='array', categoryarray=st_val_perc["Asse_X"])
                         fig_f.update_layout(title="Variazione Forza (Delta %)", yaxis_title="Miglioramento %", legend_orientation="h")
                         st.plotly_chart(fig_f, use_container_width=True)
                     with c_p:
                         fig_p = go.Figure()
                         fig_p.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 11], name="TUG (Tempo)", mode='lines+markers'))
                         fig_p.add_trace(go.Scatter(x=st_val_perc["Asse_X"], y=st_val_perc.iloc[:, 12], name="5xSTS (Tempo)", mode='lines+markers'))
-                        # Asse Y invertito per i tempi: un Delta % negativo (es. -20% di tempo) è positivo e va verso l'alto
+                        
+                        # Ordine rigido asse X e Y invertita per i test a cronometro
+                        fig_p.update_xaxes(categoryorder='array', categoryarray=st_val_perc["Asse_X"])
                         fig_p.update_yaxes(autorange="reversed")
                         fig_p.update_layout(title="Variazione Funzionale (Delta %)", yaxis_title="Riduzione Tempo %", legend_orientation="h")
                         st.plotly_chart(fig_p, use_container_width=True)
@@ -581,7 +613,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         pdf_bytes = genera_pdf_report(paz_pdf, st_paz, st_val)
                         st.download_button(label="📥 Scarica PDF", data=pdf_bytes, file_name=f"Report_Clinico_{paz_pdf}.pdf", mime="application/pdf")
                     except ImportError:
-                        st.error("Libreria FPDF non trovata. Per abilitare l'export PDF aggiungi 'fpdf' al tuo file requirements.txt o lancia 'pip install fpdf'.")
+                        st.error("Libreria FPDF non trovata. Aggiungi 'fpdf' al file requirements.txt o installa localmente con 'pip install fpdf'.")
 
 # ==============================================================================
 # AREA 3: PORTALE PAZIENTE
@@ -606,8 +638,9 @@ elif modalita_principale == "🔐 Area Personale (Paziente)":
                 st_val = df_valutazioni[df_valutazioni[col_id_val].astype(str).str.strip() == paz_id].copy()
                 
                 if not st_val.empty and len(st_val) > 0:
+                    st_val["Ordine_X"] = st_val.iloc[:, 25].apply(estrai_ordine)
+                    st_val = st_val.sort_values("Ordine_X")
                     st_val["Asse_X"] = st_val.apply(formatta_asse_x, axis=1)
-                    st_val = st_val.sort_values("Asse_X")
                     
                     # Box Riassuntivo Algoritmico
                     if len(st_val) > 1:
@@ -635,14 +668,21 @@ elif modalita_principale == "🔐 Area Personale (Paziente)":
                         fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 11], name="Agilità (TUG)", mode="lines+markers", line=dict(color="orange")))
                         fig_m.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 12], name="Forza Gambe (Sedia)", mode="lines+markers", line=dict(color="green")))
                         
-                        # INVERSIONE ASSE Y (Più basso è il tempo, più alta è la linea visivamente)
+                        # Ordine rigido cronologico (Da Sinistra = Vecchio a Destra = Nuovo)
+                        fig_m.update_xaxes(categoryorder='array', categoryarray=st_val["Asse_X"])
+                        
+                        # Inversione Asse Y: un tempo minore posiziona il punto visivamente più in alto
                         fig_m.update_yaxes(autorange="reversed")
-                        fig_m.update_layout(title="Miglioramento dell'Autonomia (Valori Bassi = Più Agilità)", legend_orientation="h")
+                        fig_m.update_layout(title="Miglioramento dell'Autonomia (Linea Ascendente = Più Agilità)", legend_orientation="h")
                         st.plotly_chart(fig_m, use_container_width=True)
+                        
                     with c_p2:
                         fig_f = go.Figure()
                         fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 22], name="Presa Mano DX", mode="lines+markers"))
                         fig_f.add_trace(go.Scatter(x=st_val["Asse_X"], y=st_val.iloc[:, 23], name="Presa Mano SN", mode="lines+markers"))
+                        
+                        # Ordine rigido cronologico
+                        fig_f.update_xaxes(categoryorder='array', categoryarray=st_val["Asse_X"])
                         fig_f.update_layout(title="Forza delle Braccia (Kg)", legend_orientation="h")
                         st.plotly_chart(fig_f, use_container_width=True)
                         
