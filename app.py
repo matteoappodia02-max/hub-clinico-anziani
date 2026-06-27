@@ -157,7 +157,7 @@ def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
             pat_raw = (str(ultimo_record.get(col_pat_sist, "")) + " " + str(ultimo_record.get(col_cond_mecc, ""))).lower()
             pat_attive = [p for p in ["ipertensione", "cardiopatia", "osteoporosi", "artrosi"] if p in pat_raw]
 
-            # Mappatura Fragilità e Distress (Colonne 23, 24, 20, 21, 10 circa)
+            # Mappatura Fragilità e Distress
             v12 = pd.to_numeric(ultimo_record.iloc[23] if len(ultimo_record)>23 else 0, errors='coerce')
             v13 = pd.to_numeric(ultimo_record.iloc[24] if len(ultimo_record)>24 else 0, errors='coerce')
             v9 = pd.to_numeric(ultimo_record.iloc[20] if len(ultimo_record)>20 else 0, errors='coerce')
@@ -168,7 +168,7 @@ def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
             dist_max = max(np.nan_to_num(v9), np.nan_to_num(v10), np.nan_to_num(dolore))
             rischio_cad = "alto" if frag_max >= 7 else ("medio" if frag_max >= 4 else "basso")
 
-            # Deficit Lower Body (Dinamometria)
+            # Deficit Lower Body
             deficit_lower = False
             if not storico_val.empty:
                 ult_val = storico_val.iloc[-1]
@@ -223,7 +223,18 @@ def renderizza_sezione_fisioterapista(df_pazienti, df_valutazioni):
 OPZIONI_FASE = ["Baseline (Prima Valutazione)", "Follow-up 3 Mesi", "Follow-up 6 Mesi", "Follow-up 9 Mesi", "Follow-up 12 Mesi"]
 MDC_SOGLIE = {"SPPB": 1.0, "TUG": -2.1, "STS_5X": -2.3, "HANDGRIP": 5.0}
 
+def genera_feedback_empatico(kinesiofobia, paura_cadute):
+    indice_prudenza = (kinesiofobia + paura_cadute) / 2
+    if indice_prudenza < 4:
+        titolo, testo, tipo = "Hai una buona consapevolezza del tuo corpo!", "Continua a mantenerti attivo/a come stai facendo. La tua sicurezza nei movimenti è un ottimo punto di partenza per conservare l'autonomia.", "success"
+    elif 4 <= indice_prudenza < 7:
+        titolo, testo, tipo = "Alcuni aspetti richiedono attenzione", "Abbiamo notato che talvolta senti un po' di timore nel muoverti liberamente. È normale, ma possiamo lavorarci insieme. Una valutazione completa ci aiuterà a capire come farti sentire più sicuro/a in ogni situazione quotidiana.", "info"
+    else:
+        titolo, testo, tipo = "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso in questo momento. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo vivamente un incontro per definire insieme piccoli passi verso una maggiore autonomia.", "warning"
+    return titolo, testo, tipo
+
 def estrai_ordine(fase_str):
+    fase_str = str(fase_str)
     mappa = {"Baseline": 1, "3": 2, "6": 3, "9": 4, "12": 5}
     for k, v in mappa.items():
         if k in fase_str: return v
@@ -399,8 +410,19 @@ if modalita_principale == "📋 Screening Iniziale (Paziente)":
             try:
                 conn.update(spreadsheet=URL_FOGLIO, worksheet="Dati_Paziente", data=pd.concat([df_paziente, pd.DataFrame([riga], columns=df_paziente.columns)], ignore_index=True))
                 st.success(f"Screening salvato correttamente per l'ID univoco: {id_gen} ({fase_paziente})")
+                
+                # Feedback Empatico
+                titolo, testo, tipo_msg = genera_feedback_empatico(v10, v12)
+                if tipo_msg == "success":
+                    st.success(f"**{titolo}**\n\n{testo}")
+                elif tipo_msg == "info":
+                    st.info(f"**{titolo}**\n\n{testo}")
+                else:
+                    st.warning(f"**{titolo}**\n\n{testo}")
+                    
                 st.cache_data.clear()
-            except Exception as e: st.error(f"Errore di archiviazione: {e}")
+            except Exception as e: 
+                st.error(f"Errore di archiviazione: {e}")
 
 # ==============================================================================
 # AREA 2: PANNELLO FISIOTERAPISTA
@@ -525,7 +547,7 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                     c4.metric("Percezione Stato", f"{dim['Percezione Stato Funzionale']}/10")
                 else: st.info("Dati BPS assenti.")
 
-            # TAB 2: SCREENING CDS
+            # TAB 2: SCREENING CDS (BOX COLORATI)
             with tab_cds:
                 st.markdown("#### Esito Algoritmi Decision Support (Linee Guida)")
                 if not st_paz.empty and not st_val.empty:
