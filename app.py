@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import tempfile
 import os
+import kaleido
 
 try:
     from fpdf import FPDF
@@ -213,11 +214,13 @@ def genera_feedback_empatico(kinesiofobia, paura_cadute):
         return "Costruiamo insieme la tua sicurezza", "Capiamo che muoversi possa sembrarti faticoso o rischioso. Il nostro obiettivo è aiutarti a ritrovare fiducia nelle tue gambe. Ti suggeriamo un incontro per definire piccoli passi verso l'autonomia.", "warning"
 
 def estrai_ordine(fase_str):
-    fase_str = str(fase_str)
-    mappa = {"Baseline": 1, "3": 2, "6": 3, "9": 4, "12": 5}
-    for k, v in mappa.items():
-        if k in fase_str: return v
-    return 6
+    fase_str = str(fase_str).lower()
+    if "baseline" in fase_str: return 1
+    if "3" in fase_str: return 2
+    if "6" in fase_str: return 3
+    if "9" in fase_str: return 4
+    if "12" in fase_str: return 5
+    return 99 # Per eventuali errori
 
 def formatta_asse_x(riga):
     try:
@@ -581,16 +584,19 @@ elif modalita_principale == "🔐 Area Personale (Paziente)":
             cv = next((c for c in ["ID Paziente", "ID_Paziente"] if c in df_v.columns), df_v.columns[10])
             sv = df_v[df_v[cv].astype(str).str.strip() == pid].copy()
             
-            if not sv.empty and len(sv) > 0:
+            if not sv.empty:
                 sv["Ordine_X"] = sv.iloc[:, 25].apply(estrai_ordine)
                 sv = sv.sort_values("Ordine_X")
                 sv["Asse_X"] = sv.apply(formatta_asse_x, axis=1)
-                
-                # Selettore Fasi con Baseline fissa
+    
+                # Pulizia: rimuoviamo righe con ordine 99 o senza data valida
+                sv = sv[sv["Ordine_X"] != 99]
+    
                 fasi_disp = sv["Asse_X"].unique().tolist()
-                b_label = next((f for f in fasi_disp if "Baseline" in f), fasi_disp[0])
+                # Cerchiamo la Baseline tra le fasi disponibili usando l'ordine
+                b_label = next((f for f in sv[sv["Ordine_X"] == 1]["Asse_X"]), fasi_disp[0] if fasi_disp else "")
                 fu_disp = [f for f in fasi_disp if f != b_label]
-                
+
                 scelte = st.multiselect("Confronta la Baseline con i tuoi follow-up:", fu_disp, default=fu_disp)
                 fasi_grafici = [b_label] + scelte
                 sv_filt = sv[sv["Asse_X"].isin(fasi_grafici)]
