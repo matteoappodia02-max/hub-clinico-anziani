@@ -630,13 +630,36 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         st_perc = st_v_filt.copy()
                         
                         col_analisi = {
-                            "Estensori di Ginocchio (Quadricipite) - DX (Kg)": "Quad DX",
-                            "Estensori di Ginocchio (Quadricipite) - SN (Kg)": "Quad SN",
+                            "Flessori d'Anca (Iliopsoas) - DX (Kg)": "Flex Anca DX",
+                            "Flessori d'Anca (Iliopsoas) - SN (Kg)": "Flex Anca SN",
+                            "Estensori d'anca - DX (Kg)": "Est Anca DX",
+                            "Estensori d'anca - SN (Kg)": "Est Anca SN",
+                            "Abduttori d'Anca (Medio Gluteo) - DX (Kg)": "Abd Anca DX",
+                            "Abduttori d'Anca (Medio Gluteo) - SN (Kg)": "Abd Anca SN",
+    
+                            # Dinamometria - Ginocchio
+                            "Estensori di Ginocchio (Quadricipite) - DX (Kg)": "Est g DX",
+                            "Estensori di Ginocchio (Quadricipite) - SN (Kg)": "Est g SN",
+                            "Flessori ginocchio - DX (Kg)": "Flex g DX",
+                            "Flessori ginocchio - SN (Kg)": "Flex g SN",
+    
+                            # Dinamometria - Caviglia
+                            "Flessori dorsali - DX (Kg)": "Flex dors DX",
+                            "Flessori dorsali - SN (Kg)": "Flex dors SN",
+                            "Flessori plantari - DX (Kg)": "Flex plan DX",
+                            "Flessori plantari - SN (Kg)": "Flex plan SN",
+                            
                             "Handgrip mano destra": "Grip DX",
                             "Handgrip mano sinistra": "Grip SN",
+                            
+                            
+                        }
+
+                        col_analisi2 = {
                             "Tempo di esecuzione del Time Up&Go (TUG)": "TUG",
                             "Tempo di esecuzione del 5xSTS (in secondi)": "STS"
                         }
+                        
                         
                         for c_name in col_analisi.keys():
                             bv = pd.to_numeric(base_row.get(c_name, np.nan), errors='coerce')
@@ -648,18 +671,58 @@ elif modalita_principale == "📊 Pannello Analisi Avanzata (Fisioterapista)":
                         c_f, c_p = st.columns(2)
                         with c_f:
                             fig_f = go.Figure()
-                            fig_f.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc["Estensori di Ginocchio (Quadricipite) - DX (Kg)"], name="Quad DX", mode='lines+markers'))
-                            fig_f.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc["Handgrip mano destra"], name="Grip DX", mode='lines+markers', line=dict(dash='dash')))
-                            fig_f.update_xaxes(categoryorder='array', categoryarray=fasi_filtro)
-                            fig_f.update_layout(title="Variazione Forza (Delta %)", yaxis_title="%")
-                            st.plotly_chart(fig_f, use_container_width=True)
+    
+                            # Ciclo automatico su tutte le variabili e targhette definite in col_analisi
+                            for col_excel, targhetta in col_analisi.items():
+                                if col_excel in st_perc.columns:
+                                    fig_f.add_trace(
+                                        go.Scatter(
+                                            x=st_perc["Asse_X"], 
+                                            y=pd.to_numeric(st_perc[col_excel], errors='coerce'), 
+                                            name=targhetta, 
+                                            mode='lines+markers'
+                                        )
+                                    )
+    
+                        # Configurazione degli assi e del layout
+                        fig_f.update_xaxes(categoryorder='array', categoryarray=fasi_filtro)
+                        fig_f.update_layout(
+                            title="Variazione Forza Muscolare", 
+                            yaxis_title="%",
+                            legend_orientation="h",  # Posiziona la legenda in orizzontale sotto al grafico per non stringere lo spazio
+                            legend=dict(y=-0.2, x=0.5, xanchor='center')
+                        )
+    
+                        # Mostra il grafico su Streamlit
+                        st.plotly_chart(fig_f, use_container_width=True)
+
                         with c_p:
                             fig_p = go.Figure()
-                            fig_p.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc["Tempo di esecuzione del Time Up&Go (TUG)"], name="TUG (Tempo)", mode='lines+markers'))
-                            fig_p.add_trace(go.Scatter(x=st_perc["Asse_X"], y=st_perc["Tempo di esecuzione del 5xSTS (in secondi)"], name="5xSTS", mode='lines+markers'))
+    
+                            # Ciclo automatico sulle variabili di tempo definite in col_analisi2
+                            for col_excel, targhetta in col_analisi2.items():
+                                if col_excel in st_perc.columns:
+                                    fig_p.add_trace(
+                                        go.Scatter(
+                                            x=st_perc["Asse_X"], 
+                                            y=pd.to_numeric(st_perc[col_excel], errors='coerce'), 
+                                            name=targhetta, 
+                                            mode='lines+markers'
+                                        )
+                                    )
+    
+                            # Configurazione assi e layout specifico per i tempi
                             fig_p.update_xaxes(categoryorder='array', categoryarray=fasi_filtro)
-                            fig_p.update_yaxes(autorange="reversed")
-                            fig_p.update_layout(title="Variazione Tempi Funzionali (Delta %)", yaxis_title="% Tempo (Linea su = Più veloce)")
+                            fig_p.update_yaxes(autorange="reversed")  # Meno tempo = grafico va verso l'alto
+    
+                            fig_p.update_layout(
+                                title="Variazione Tempi Funzionali (Delta %)", 
+                                yaxis_title="% Tempo (Linea in alto = Più veloce)",
+                                legend_orientation="h",
+                                legend=dict(y=-0.2, x=0.5, xanchor='center')
+                            )
+    
+                            # Mostra il grafico su Streamlit
                             st.plotly_chart(fig_p, use_container_width=True)
 
     elif sub_menu == "💾 Export Dati & Report PDF":
